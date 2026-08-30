@@ -813,6 +813,11 @@ function applyCommandSuggestion(index = activeSuggestionIndex.value) {
 }
 
 function handleInputKeydown(event: KeyboardEvent) {
+  recordInputFocusDiagnostic('textarea-keydown', {
+    keyKind: event.key.length === 1 ? 'printable' : event.key,
+    targetIsTextarea: event.currentTarget === getTextareaElement(),
+    defaultPrevented: event.defaultPrevented,
+  })
   if (isComposing.value)
     return
 
@@ -1140,6 +1145,30 @@ function currentProjectPath() {
   return props.request?.project_path?.trim() || undefined
 }
 
+function activeElementForFocusDiagnostic() {
+  const active = typeof document !== 'undefined' ? document.activeElement : null
+  return {
+    activeTag: active instanceof HTMLElement ? active.tagName : null,
+    activeIsTextarea: active === getTextareaElement(),
+  }
+}
+
+function recordInputFocusDiagnostic(event: string, extra: Record<string, unknown> = {}) {
+  void invoke('timeline_debug_log', {
+    location: 'frontend/popup_input/focus_diag',
+    payload: {
+      event,
+      requestId: currentRequestId() || null,
+      userInputLength: userInput.value.length,
+      isComposing: isComposing.value,
+      loading: props.loading,
+      submitting: props.submitting,
+      ...activeElementForFocusDiagnostic(),
+      ...extra,
+    },
+  }).catch(() => {})
+}
+
 function suppressProgrammaticSpeechTargetFocus() {
   suppressSpeechTargetFocusUntil = Date.now() + 350
 }
@@ -1149,12 +1178,14 @@ function shouldSuppressSpeechTargetFocus() {
 }
 
 function handleSpeechTargetFocus() {
+  recordInputFocusDiagnostic('textarea-focus')
   if (shouldSuppressSpeechTargetFocus())
     return
   void registerPopupSpeechTarget('focus')
 }
 
 function handleSpeechTargetClick() {
+  recordInputFocusDiagnostic('textarea-click')
   suppressSpeechTargetFocusUntil = 0
   void registerPopupSpeechTarget('click')
 }
@@ -1293,6 +1324,7 @@ async function applySpeechInsertText(payload: SpeechInsertPayload) {
 
 async function focusInput(options: { registerSpeechTarget?: boolean } = {}) {
   const registerSpeechTarget = options.registerSpeechTarget ?? true
+  recordInputFocusDiagnostic('focus-input:start', { registerSpeechTarget })
   if (!registerSpeechTarget)
     suppressProgrammaticSpeechTargetFocus()
 
@@ -1304,6 +1336,7 @@ async function focusInput(options: { registerSpeechTarget?: boolean } = {}) {
   try {
     const webview = getCurrentWebviewWindow()
     await webview.setFocus()
+    recordInputFocusDiagnostic('focus-input:window-focused', { registerSpeechTarget })
 
     const inputElement = getTextareaElement()
 
@@ -1339,6 +1372,7 @@ async function focusInput(options: { registerSpeechTarget?: boolean } = {}) {
       const cursorPosition = typeof inputElement.value === 'string' ? inputElement.value.length : 0
       inputElement.setSelectionRange(cursorPosition, cursorPosition)
     }
+    recordInputFocusDiagnostic('focus-input:textarea-focused', { registerSpeechTarget })
 
     if (scrollableAncestors.length > 0) {
       const restoreScrollPosition = () => {
@@ -1479,11 +1513,13 @@ function cancelTextareaAutosize() {
 
 function handleCompositionStart() {
   isComposing.value = true
+  recordInputFocusDiagnostic('composition-start')
   cancelTextareaAutosize()
 }
 
 function handleCompositionEnd() {
   isComposing.value = false
+  recordInputFocusDiagnostic('composition-end')
   void nextTick(() => {
     scheduleTextareaAutosize(0)
   })
@@ -1685,6 +1721,7 @@ async function savePromptOrder() {
 
 // 监听用户输入变化
 watch(userInput, (newVal) => {
+  recordInputFocusDiagnostic('user-input-change', { nextLength: newVal.length })
   if (activeCommandToken.value !== acceptedSuggestionToken.value) {
     acceptedSuggestionToken.value = ''
   }
@@ -1715,10 +1752,12 @@ function fixIMEPosition() {
   if (inputElement) {
     try {
       if (document.activeElement === inputElement) {
+        recordInputFocusDiagnostic('ime-fix:before-blur')
         // 先失焦再聚焦，让输入法重新计算位置
         inputElement.blur()
         setTimeout(() => {
           inputElement.focus()
+          recordInputFocusDiagnostic('ime-fix:after-focus')
         }, 10)
       }
     }
@@ -1735,6 +1774,7 @@ async function setupWindowMoveListener() {
 
     // 监听窗口移动事件
     unlistenWindowMove = await webview.onMoved(() => {
+      recordInputFocusDiagnostic('window-moved')
       // 窗口移动后修复输入法位置
       fixIMEPosition()
     })
@@ -2147,6 +2187,7 @@ defineExpose({
           data-guide="popup-input"
           @paste="handleInputPaste"
           @focus="handleSpeechTargetFocus"
+          @blur="recordInputFocusDiagnostic('textarea-blur')"
           @click="handleSpeechTargetClick"
           @keydown="handleInputKeydown"
           @scroll="handleTextareaScroll"
