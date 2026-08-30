@@ -78,6 +78,11 @@ jobs:
           Copy-Item 'target\release\iterate.exe' "$appDir\\"
           Copy-Item 'target\release\mcp-server.exe' "$appDir\\"
           Copy-Item -LiteralPath $webViewLoaderPath "$appDir\WebView2Loader.dll"
+          Copy-Item 'docs\INSTALLATION.md' "$packageDir\INSTALLATION.md"
+          Copy-Item 'docs\INSTALL_PROMPT.md' "$packageDir\INSTALL_PROMPT.md"
+          Copy-Item 'docs\SYSTEM_PROMPT.md' "$packageDir\SYSTEM_PROMPT.md"
+          Copy-Item 'release-package\windows\Install iterate.bat' "$packageDir\Install iterate.bat"
+          Copy-Item 'release-package\windows\Start iterate.bat' "$packageDir\Start iterate.bat"
           Copy-Item -LiteralPath $installer.FullName -Destination "$packageName-setup.exe" -Force
           Compress-Archive -Path $packageDir -DestinationPath "$packageName.zip" -Force
 
@@ -86,6 +91,7 @@ jobs:
         run: pwsh -NoProfile -File ./scripts/windows-install-smoke.ps1 -PackageDir windows-package
 
       - name: Upload private verification artifact
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: iterate-windows-local-verify
