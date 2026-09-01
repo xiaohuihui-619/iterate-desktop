@@ -151,6 +151,23 @@ test('popup close ends only the current interaction while the native titlebar st
   assert.match(windowEvents, /handle_system_exit_request[\s\S]*?true/)
 })
 
+test('Windows reqwest enables HTTP2 when ALPN can negotiate h2', () => {
+  const cargo = source('Cargo.toml')
+  assert.match(
+    cargo,
+    /\[target\.'cfg\(target_os = "windows"\)'\.dependencies\][\s\S]*?reqwest = \{[\s\S]*?features = \[[\s\S]*?"native-tls-alpn"[\s\S]*?"http2"[\s\S]*?\]/,
+  )
+})
+
+test('Windows popup movement skips the blur-focus IME position hack', () => {
+  const popupInput = source('src/frontend/components/popup/PopupInput.vue')
+  assert.match(popupInput, /const windowsPlatform = typeof navigator !== 'undefined' && navigator\.platform\.toUpperCase\(\)\.includes\('WIN'\)/)
+  assert.match(
+    popupInput,
+    /webview\.onMoved\(\(\) => \{[\s\S]*?if \(windowsPlatform\)[\s\S]*?return[\s\S]*?fixIMEPosition\(\)/,
+  )
+})
+
 test('Windows bundle uses a current-user NSIS installer', () => {
   const config = JSON.parse(source('tauri.conf.json'))
   assert.equal(config.bundle.windows.nsis.installMode, 'currentUser')
