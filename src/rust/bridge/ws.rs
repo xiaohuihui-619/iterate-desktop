@@ -11813,9 +11813,9 @@ async fn inspect_root_tunnel_runtime() -> serde_json::Value {
         .ok()
         .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok());
     let (metrics_probe, metrics_http_ok) = probe_http_endpoint(ROOT_TUNNEL_METRICS_URL).await;
-    let ha_connection_count = probe_root_tunnel_ha_connections(ROOT_TUNNEL_METRICS_URL)
-        .await
-        .unwrap_or(0.0);
+    let live_ha_connection_count = probe_root_tunnel_ha_connections(ROOT_TUNNEL_METRICS_URL).await;
+    let ha_connections = live_ha_connection_count.map(|value| value.to_string());
+    let ha_connection_count = live_ha_connection_count.unwrap_or(0.0);
     let root_launchctl =
         debug_launchctl_label("system/xin.tobooks.cunzhi.cloudflared-proxied.root").await;
     let status_age_secs = root_tunnel_status_age_secs(status_file.as_ref());
