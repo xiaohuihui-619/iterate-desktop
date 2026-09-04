@@ -689,6 +689,20 @@ async fn handle_connection(
 static WS_SERVER: once_cell::sync::Lazy<Arc<RwLock<Option<WsServer>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(None)));
 
+/// 返回 Browser WebSocket 服务器当前真实运行状态。
+pub async fn browser_ws_server_running() -> bool {
+    let global = WS_SERVER.read().await;
+    match global.as_ref() {
+        Some(server) => *server.running.read().await,
+        None => false,
+    }
+}
+
+/// 返回浏览器扩展当前是否存在已认证的活跃连接。
+pub async fn browser_extension_connected() -> bool {
+    BROWSER_TX.read().await.is_some()
+}
+
 /// 启动 WebSocket 服务器（如果已运行则返回现有的 sender）
 pub async fn start_ws_server() -> Result<broadcast::Sender<AiCompletionEvent>> {
     let mut global = WS_SERVER.write().await;

@@ -247,4 +247,18 @@ test('Windows popup accepts Explorer file clipboard data and drive-letter paths'
   assert.match(cargo, /"Win32_UI_Shell"/)
 })
 
+test('Browser settings use the real WebSocket runtime state', () => {
+  const websocket = source('src/rust/browser/websocket.rs')
+  const commands = source('src/rust/browser/commands.rs')
+  const settings = source('src/frontend/components/settings/BrowserSettings.vue')
 
+  assert.match(websocket, /pub async fn browser_ws_server_running\(\)[\s\S]*?WS_SERVER\.read\(\)\.await[\s\S]*?server\.running\.read\(\)\.await/)
+  assert.match(websocket, /pub async fn browser_extension_connected\(\)[\s\S]*?BROWSER_TX\.read\(\)\.await\.is_some\(\)/)
+  assert.match(commands, /get_browser_monitor_status\(\)[\s\S]*?connected: browser_extension_connected\(\)\.await,[\s\S]*?monitoring: browser_ws_server_running\(\)\.await/)
+  assert.doesNotMatch(commands, /connected:\s*true[\s\S]{0,80}monitoring:\s*true/)
+  assert.match(settings, /invoke<BrowserMonitorStatus>\('get_browser_monitor_status'\)/)
+  assert.match(settings, /async function startMonitoring\(\)[\s\S]*?start_browser_monitoring[\s\S]*?await syncMonitoringStatus\(\)/)
+  assert.match(settings, /async function stopMonitoring\(\)[\s\S]*?stop_browser_monitoring[\s\S]*?await syncMonitoringStatus\(\)/)
+  assert.match(settings, /onMounted\(async \(\) => \{[\s\S]*?await syncMonitoringStatus\(\)/)
+  assert.doesNotMatch(settings, /isMonitoring\.value\s*=\s*(?:true|false)/)
+})
