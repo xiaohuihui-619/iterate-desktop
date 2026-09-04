@@ -18,6 +18,19 @@ test('bridge health probe uses reqwest only on Windows and preserves the Unix cu
   assert.match(setup, /#\[cfg\(not\(target_os = "windows"\)\)\]\s*fn bridge_http_healthy[\s\S]*?command_stdout\("curl"/)
 })
 
+test('Windows root tunnel diagnostics use native HTTP and hide fallback child consoles', () => {
+  const bridge = source('src/rust/bridge/ws.rs')
+  const start = bridge.indexOf('async fn inspect_root_tunnel_runtime()')
+  const end = bridge.indexOf('async fn diagnostic_command_stdout', start)
+  assert.ok(start >= 0 && end > start)
+  const rootTunnel = bridge.slice(start, end)
+
+  assert.match(rootTunnel, /probe_root_tunnel_ha_connections\(ROOT_TUNNEL_METRICS_URL\)/)
+  assert.doesNotMatch(rootTunnel, /diagnostic_command_stdout\(\s*"sh"/)
+  assert.match(bridge, /fn parse_root_tunnel_ha_connections[\s\S]*?tunnel_ha_connections/)
+  assert.match(bridge, /async fn diagnostic_command_stdout[\s\S]*?#\[cfg\(target_os = "windows"\)\][\s\S]*?CREATE_NO_WINDOW[\s\S]*?as_std_mut\(\)\.creation_flags/)
+})
+
 test('Windows shows the main window before background setup while non-Windows keeps blocking setup', () => {
   const builder = source('src/rust/app/builder.rs')
   const showIndex = builder.indexOf('window.show()')
