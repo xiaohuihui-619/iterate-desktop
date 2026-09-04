@@ -398,6 +398,7 @@ async fn send_as_client(message: String) -> Result<()> {
 pub struct WsServer {
     event_tx: broadcast::Sender<AiCompletionEvent>,
     running: Arc<RwLock<bool>>,
+    server_task: RwLock<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl Default for WsServer {
@@ -412,6 +413,7 @@ impl WsServer {
         Self {
             event_tx,
             running: Arc::new(RwLock::new(false)),
+            server_task: RwLock::new(None),
         }
     }
 
@@ -431,7 +433,7 @@ impl WsServer {
         let running = self.running.clone();
         let event_tx = self.event_tx.clone();
 
-        tokio::spawn(async move {
+        let server_task = tokio::spawn(async move {
             while *running.read().await {
                 match listener.accept().await {
                     Ok((stream, addr)) => {
@@ -448,6 +450,7 @@ impl WsServer {
                 }
             }
         });
+        *self.server_task.write().await = Some(server_task);
 
         Ok(())
     }
@@ -455,6 +458,10 @@ impl WsServer {
     /// 停止服务器
     pub async fn stop(&self) {
         *self.running.write().await = false;
+        if let Some(server_task) = self.server_task.write().await.take() {
+            server_task.abort();
+            let _ = server_task.await;
+        }
     }
 }
 

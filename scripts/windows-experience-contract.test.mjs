@@ -254,6 +254,8 @@ test('Browser settings use the real WebSocket runtime state', () => {
 
   assert.match(websocket, /pub async fn browser_ws_server_running\(\)[\s\S]*?WS_SERVER\.read\(\)\.await[\s\S]*?server\.running\.read\(\)\.await/)
   assert.match(websocket, /pub async fn browser_extension_connected\(\)[\s\S]*?BROWSER_TX\.read\(\)\.await\.is_some\(\)/)
+  assert.match(websocket, /let server_task = tokio::spawn[\s\S]*?self\.server_task\.write\(\)\.await = Some\(server_task\)/)
+  assert.match(websocket, /pub async fn stop\(&self\)[\s\S]*?server_task\.abort\(\)[\s\S]*?server_task\.await/)
   assert.match(commands, /get_browser_monitor_status\(\)[\s\S]*?connected: browser_extension_connected\(\)\.await,[\s\S]*?monitoring: browser_ws_server_running\(\)\.await/)
   assert.doesNotMatch(commands, /connected:\s*true[\s\S]{0,80}monitoring:\s*true/)
   assert.match(settings, /invoke<BrowserMonitorStatus>\('get_browser_monitor_status'\)/)
