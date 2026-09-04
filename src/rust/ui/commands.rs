@@ -4088,7 +4088,22 @@ pub async fn read_clipboard_file_paths() -> Result<Vec<String>, String> {
             return Ok(vec![]);
         }
 
-        if OpenClipboard(std::ptr::null_mut()) == 0 {
+        const CLIPBOARD_OPEN_ATTEMPTS: usize = 5;
+        const CLIPBOARD_RETRY_DELAY_MS: u64 = 20;
+
+        let mut clipboard_opened = false;
+        for attempt in 0..CLIPBOARD_OPEN_ATTEMPTS {
+            if OpenClipboard(std::ptr::null_mut()) != 0 {
+                clipboard_opened = true;
+                break;
+            }
+
+            if attempt + 1 < CLIPBOARD_OPEN_ATTEMPTS {
+                std::thread::sleep(std::time::Duration::from_millis(CLIPBOARD_RETRY_DELAY_MS));
+            }
+        }
+
+        if !clipboard_opened {
             return Err("打开 Windows 剪贴板失败".to_string());
         }
 
