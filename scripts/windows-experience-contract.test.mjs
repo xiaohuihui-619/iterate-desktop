@@ -232,3 +232,19 @@ test('Windows popup shortcuts use the new defaults and safely migrate only the c
   assert.match(popupActions, /props\.canSubmit && !props\.submitting[\s\S]*?handleGoalSubmit\(\)/)
   assert.match(popupActions, /!props\.submitting[\s\S]*?handleContinue\(\)/)
 })
+test('Windows popup accepts Explorer file clipboard data and drive-letter paths', () => {
+  const popup = source('src/frontend/components/popup/PopupInput.vue')
+  const commands = source('src/rust/ui/commands.rs')
+  const cargo = source('Cargo.toml')
+
+  assert.match(popup, /Explorer copies absolute paths with drive letters or UNC prefixes/)
+  assert.match(popup, /decodedPath\.slice\(1\)/)
+  assert.match(popup, /path\.split\(\/\[\\\\\/\]\//)
+  assert.match(commands, /#\[cfg\(target_os = "windows"\)\][\s\S]*?read_clipboard_file_paths[\s\S]*?CF_HDROP[\s\S]*?DragQueryFileW/)
+  assert.match(commands, /#\[cfg\(not\(any\(target_os = "macos", target_os = "windows"\)\)\)\]/)
+  assert.match(cargo, /"Win32_System_DataExchange"/)
+  assert.match(cargo, /"Win32_System_Ole"/)
+  assert.match(cargo, /"Win32_UI_Shell"/)
+})
+
+

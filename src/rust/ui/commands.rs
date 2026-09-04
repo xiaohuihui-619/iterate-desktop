@@ -4074,7 +4074,63 @@ pub async fn read_clipboard_file_paths(app: tauri::AppHandle) -> Result<Vec<Stri
         .map_err(|e| format!("等待剪贴板读取结果失败: {}", e))?
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub async fn read_clipboard_file_paths() -> Result<Vec<String>, String> {
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    };
+    use windows_sys::Win32::System::Ole::CF_HDROP;
+    use windows_sys::Win32::UI::Shell::{DragQueryFileW, HDROP};
+
+    unsafe {
+        if IsClipboardFormatAvailable(CF_HDROP as u32) == 0 {
+            return Ok(vec![]);
+        }
+
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            return Err("打开 Windows 剪贴板失败".to_string());
+        }
+
+        let result = (|| -> Result<Vec<String>, String> {
+            let clipboard_handle = GetClipboardData(CF_HDROP as u32);
+            if clipboard_handle.is_null() {
+                return Ok(vec![]);
+            }
+
+            let hdrop = clipboard_handle as HDROP;
+            let count = DragQueryFileW(hdrop, u32::MAX, std::ptr::null_mut(), 0);
+            let mut unique_paths = HashSet::new();
+            let mut selected_paths = Vec::with_capacity(count as usize);
+
+            for index in 0..count {
+                let path_len = DragQueryFileW(hdrop, index, std::ptr::null_mut(), 0);
+                if path_len == 0 {
+                    continue;
+                }
+
+                let mut buffer = vec![0u16; path_len as usize + 1];
+                let written =
+                    DragQueryFileW(hdrop, index, buffer.as_mut_ptr(), buffer.len() as u32);
+                if written == 0 {
+                    continue;
+                }
+
+                let path = String::from_utf16_lossy(&buffer[..written as usize]);
+                if !path.is_empty() && unique_paths.insert(path.clone()) {
+                    selected_paths.push(path);
+                }
+            }
+
+            Ok(selected_paths)
+        })();
+
+        let _ = CloseClipboard();
+        result
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[tauri::command]
 pub async fn read_clipboard_file_paths() -> Result<Vec<String>, String> {
     Ok(vec![])

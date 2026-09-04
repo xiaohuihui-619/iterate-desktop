@@ -378,7 +378,7 @@ function handleOptionToggle(option: string) {
 const IMAGE_PATH_PATTERN = /\.(?:png|jpe?g|gif|webp|svg|bmp|heic|heif|tiff?)$/i
 
 function getDisplayNameFromPath(path: string): string {
-  return path.split('/').filter(Boolean).pop() || path
+  return path.split(/[\\/]/).filter(Boolean).pop() || path
 }
 
 function isImagePath(path: string): boolean {
@@ -390,9 +390,14 @@ function normalizeClipboardPath(rawValue: string): string | null {
   if (!trimmed)
     return null
 
+  // Explorer copies absolute paths with drive letters or UNC prefixes.
+  if (/^[a-z]:[\\/]/i.test(trimmed) || /^\\\\[^\\]+\\[^\\]+/.test(trimmed))
+    return trimmed
+
   if (trimmed.startsWith('file://')) {
     try {
-      return decodeURIComponent(new URL(trimmed).pathname)
+      const decodedPath = decodeURIComponent(new URL(trimmed).pathname)
+      return /^\/[a-z]:\//i.test(decodedPath) ? decodedPath.slice(1) : decodedPath
     }
     catch {
       return decodeURIComponent(trimmed.replace(/^file:\/\//, ''))
