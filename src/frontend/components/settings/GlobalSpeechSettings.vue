@@ -22,6 +22,14 @@ interface PermissionRow {
   restartHint?: string
 }
 
+interface WindowsSpeechCapability {
+  available: boolean
+  recognizerName: string | null
+  culture: string | null
+  shortcut: string
+  details: string
+}
+
 interface SpeechRuntimeStatus {
   permissions: {
     microphone: boolean
@@ -85,6 +93,8 @@ const OWN_BUNDLE_ID = 'com.kexin94yyds.iterate'
 const LOG_PATH = '/tmp/iterate-native-speech.log'
 
 const message = useMessage()
+const windowsPlatform = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('WIN')
+const windowsCapability = ref<WindowsSpeechCapability | null>(null)
 const loading = ref(false)
 const actionLoading = ref<string | null>(null)
 const overlayLoading = ref<string | null>(null)
@@ -333,6 +343,16 @@ async function refreshStatus(showSuccess = false) {
   loading.value = true
   lastError.value = ''
   try {
+    if (windowsPlatform) {
+      windowsCapability.value = await invoke<WindowsSpeechCapability>('get_windows_speech_capability')
+      runtimeStatus.value = null
+      targetBundleId.value = null
+      lastRefreshedAt.value = new Date().toLocaleTimeString()
+      if (showSuccess)
+        message.success('Windows 语音状态已刷新')
+      return
+    }
+
     const runtime = await invoke<SpeechRuntimeStatus>('get_speech_runtime_status')
     runtimeStatus.value = runtime
 
@@ -423,36 +443,17 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4">
-    <div class="rounded-lg border border-[var(--n-border-color)] bg-[var(--n-card-color)] p-4">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div class="text-base font-medium">
-            全局语音输入
+    <template v-if="windowsPlatform">
+      <div class="rounded-lg border border-[var(--n-border-color)] bg-[var(--n-card-color)] p-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="text-base font-medium">
+              Windows 全局语音输入
+            </div>
+            <div class="text-sm opacity-70 mt-1">
+              使用 Windows 本地 System.Speech 识别，识别结果继续经过 iterate 的纠错、肌肉记忆与词汇记忆后处理。
+            </div>
           </div>
-          <div class="text-sm opacity-70 mt-1">
-            Fn 听写、macOS 权限与写回诊断集中检查。
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <n-tag :type="allGranted ? 'success' : 'warning'" :bordered="false" size="small">
-            权限 {{ grantedCount }}/{{ permissionRows.length }}
-          </n-tag>
-          <n-tag
-            v-if="runtimeStatus"
-            :type="ownerIsCurrentProcess ? 'success' : 'warning'"
-            :bordered="false"
-            size="small"
-          >
-            Fn owner {{ ownerTagText }}
-          </n-tag>
-          <n-tag
-            v-if="runtimeStatus"
-            :type="runtimeStatus.overlay.pending_toggle ? 'warning' : runtimeStatus.overlay.listener_ready ? 'success' : 'default'"
-            :bordered="false"
-            size="small"
-          >
-            {{ runtimeStatus.overlay.pending_toggle ? 'pending toggle' : runtimeStatus.overlay.listener_ready ? 'overlay ready' : 'overlay 未 ready' }}
-          </n-tag>
           <n-button size="small" :loading="loading" @click="refreshStatus(true)">
             <template #icon>
               <div class="i-carbon-renew w-4 h-4" />
@@ -460,181 +461,266 @@ onMounted(() => {
             刷新
           </n-button>
         </div>
-      </div>
-      <div v-if="lastRefreshedAt" class="text-xs opacity-60 mt-3">
-        最近刷新：{{ lastRefreshedAt }}
-      </div>
-      <n-alert v-if="showOwnerWarning" class="mt-3" type="warning" :bordered="false">
-        Fn 监听不在当前窗口进程，当前窗口只用于查看状态；实际监听进程是 {{ ownerTagText }}。
-      </n-alert>
-    </div>
 
-    <div class="rounded-lg border border-[var(--n-border-color)] bg-[var(--n-card-color)] p-4">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-sm font-medium">
-            识别模式
-          </div>
-          <div class="mt-1 text-xs opacity-60">
-            {{ recognitionModeDescription }}
-          </div>
-        </div>
-        <n-segmented
-          :value="recognitionMode"
-          :options="desktopSpeechRecognitionModeOptions"
-          size="small"
-          @update:value="updateRecognitionMode"
-        />
-      </div>
-      <n-alert v-if="recognitionMode === 'quality'" class="mt-3" type="info" :bordered="false">
-        质量优先不会强制本机识别，是否使用在线识别由 macOS Speech 决定。
-      </n-alert>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <div
-        v-for="row in permissionRows"
-        :key="row.key"
-        class="rounded-lg border border-[var(--n-border-color)] bg-[var(--n-card-color)] p-4"
-      >
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <div class="flex items-center gap-2">
-              <div class="w-2 h-2 rounded-full shrink-0" :class="statusDotClass(permissions[row.key])" />
-              <div class="text-sm font-medium">
-                {{ row.label }}
-              </div>
+        <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="rounded-lg border border-dashed border-[var(--n-border-color)] p-3">
+            <div class="text-xs opacity-60">
+              本地识别器
             </div>
-            <div class="text-xs opacity-60 mt-1 leading-relaxed">
-              {{ row.description }}
+            <div class="mt-1 text-sm font-medium">
+              {{ windowsCapability?.recognizerName || '未检测到' }}
+            </div>
+            <div class="mt-1 text-xs opacity-60">
+              {{ windowsCapability?.culture || 'unknown' }}
             </div>
           </div>
-          <n-tag :type="permissionStatusType(permissions[row.key])" :bordered="false" size="small">
-            {{ permissionStatusText(permissions[row.key]) }}
-          </n-tag>
+          <div class="rounded-lg border border-dashed border-[var(--n-border-color)] p-3">
+            <div class="text-xs opacity-60">
+              全局快捷键
+            </div>
+            <div class="mt-1 text-sm font-medium">
+              {{ windowsCapability?.shortcut || 'Shift+Ctrl+Space' }}
+            </div>
+            <div class="mt-1 text-xs opacity-60">
+              在任意输入窗口按下后开始一次听写；识别结束后写回原窗口。
+            </div>
+          </div>
         </div>
-        <div class="mt-3 flex flex-wrap items-center gap-2">
-          <n-button
-            v-if="permissions[row.key] !== true"
-            size="tiny"
-            type="primary"
-            secondary
-            :loading="actionLoading === row.key"
-            @click="requestPermission(row)"
-          >
-            {{ row.actionLabel }}
-          </n-button>
-          <span v-if="row.restartHint" class="text-xs opacity-60">
-            {{ row.restartHint }}
-          </span>
-        </div>
-      </div>
-    </div>
 
-    <div class="rounded-lg border border-[var(--n-border-color)] bg-[var(--n-card-color)] p-4">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div class="text-sm font-medium">
-            Fn 浮层与写回目标
-          </div>
-          <div class="text-xs opacity-60 mt-1">
-            当前 Fn 为固定全局触发键；这里仅做检查和清理。
-          </div>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <n-button
-            size="tiny"
-            :loading="overlayLoading === 'show'"
-            @click="runOverlayAction('reveal_speech_overlay_window', 'show', '语音浮层已显示')"
-          >
-            显示浮层
-          </n-button>
-          <n-button
-            size="tiny"
-            :loading="overlayLoading === 'hide'"
-            @click="runOverlayAction('hide_speech_overlay_window', 'hide', '语音浮层已隐藏')"
-          >
-            隐藏浮层
-          </n-button>
-          <n-button
-            size="tiny"
-            type="warning"
-            secondary
-            :loading="overlayLoading === 'stop'"
-            @click="runOverlayAction('stop_native_speech', 'stop', '语音识别已停止')"
-          >
-            停止识别
-          </n-button>
+        <n-alert
+          class="mt-4"
+          :type="windowsCapability?.available ? 'success' : 'warning'"
+          :bordered="false"
+        >
+          {{ windowsCapability?.details || '正在检测 Windows 本地语音识别能力…' }}
+        </n-alert>
+        <div v-if="lastRefreshedAt" class="text-xs opacity-60 mt-3">
+          最近刷新：{{ lastRefreshedAt }}
         </div>
       </div>
 
-      <div class="mt-4 rounded-lg border border-dashed border-[var(--n-border-color)] p-3">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="text-xs opacity-60">
-            最近写回目标
+      <n-alert type="info" :bordered="false">
+        Windows 不使用 macOS 的 Fn / Speech / Accessibility 权限模型，因此这里不会伪装显示“4/4 已授权”。全局快捷键总开关仍沿用 iterate 的“全局快捷键”设置。
+      </n-alert>
+      <n-alert v-if="lastError" type="error" :bordered="false">
+        {{ lastError }}
+      </n-alert>
+    </template>
+
+    <template v-else>
+      <div class="rounded-lg border border-[var(--n-border-color)] bg-[var(--n-card-color)] p-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="text-base font-medium">
+              全局语音输入
+            </div>
+            <div class="text-sm opacity-70 mt-1">
+              Fn 听写、macOS 权限与写回诊断集中检查。
+            </div>
           </div>
-          <n-tag
-            :type="capturedOwnApp ? 'warning' : hasCapturedTarget ? 'success' : 'default'"
-            :bordered="false"
-            size="small"
-          >
-            {{ targetBundleId || '未捕获' }}
-          </n-tag>
+          <div class="flex items-center gap-2">
+            <n-tag :type="allGranted ? 'success' : 'warning'" :bordered="false" size="small">
+              权限 {{ grantedCount }}/{{ permissionRows.length }}
+            </n-tag>
+            <n-tag
+              v-if="runtimeStatus"
+              :type="ownerIsCurrentProcess ? 'success' : 'warning'"
+              :bordered="false"
+              size="small"
+            >
+              Fn owner {{ ownerTagText }}
+            </n-tag>
+            <n-tag
+              v-if="runtimeStatus"
+              :type="runtimeStatus.overlay.pending_toggle ? 'warning' : runtimeStatus.overlay.listener_ready ? 'success' : 'default'"
+              :bordered="false"
+              size="small"
+            >
+              {{ runtimeStatus.overlay.pending_toggle ? 'pending toggle' : runtimeStatus.overlay.listener_ready ? 'overlay ready' : 'overlay 未 ready' }}
+            </n-tag>
+            <n-button size="small" :loading="loading" @click="refreshStatus(true)">
+              <template #icon>
+                <div class="i-carbon-renew w-4 h-4" />
+              </template>
+              刷新
+            </n-button>
+          </div>
         </div>
-        <n-alert v-if="capturedOwnApp" class="mt-3" type="warning" :bordered="false">
-          最近目标是 iterate 自身，可能表示显示浮层前没有保留真实输入 App。
+        <div v-if="lastRefreshedAt" class="text-xs opacity-60 mt-3">
+          最近刷新：{{ lastRefreshedAt }}
+        </div>
+        <n-alert v-if="showOwnerWarning" class="mt-3" type="warning" :bordered="false">
+          Fn 监听不在当前窗口进程，当前窗口只用于查看状态；实际监听进程是 {{ ownerTagText }}。
         </n-alert>
       </div>
 
-      <div v-if="runtimeRows.length" class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div
-          v-for="row in runtimeRows"
-          :key="row.label"
-          class="rounded-lg bg-black-100 px-3 py-2"
-        >
-          <div class="flex items-center justify-between gap-2">
-            <div class="text-xs opacity-60">
-              {{ row.label }}
+      <div class="rounded-lg border border-[var(--n-border-color)] bg-[var(--n-card-color)] p-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-sm font-medium">
+              识别模式
             </div>
-            <n-tag :type="runtimeStatusType(row)" :bordered="false" size="small">
-              {{ row.detail }}
+            <div class="mt-1 text-xs opacity-60">
+              {{ recognitionModeDescription }}
+            </div>
+          </div>
+          <n-segmented
+            :value="recognitionMode"
+            :options="desktopSpeechRecognitionModeOptions"
+            size="small"
+            @update:value="updateRecognitionMode"
+          />
+        </div>
+        <n-alert v-if="recognitionMode === 'quality'" class="mt-3" type="info" :bordered="false">
+          质量优先不会强制本机识别，是否使用在线识别由 macOS Speech 决定。
+        </n-alert>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div
+          v-for="row in permissionRows"
+          :key="row.key"
+          class="rounded-lg border border-[var(--n-border-color)] bg-[var(--n-card-color)] p-4"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full shrink-0" :class="statusDotClass(permissions[row.key])" />
+                <div class="text-sm font-medium">
+                  {{ row.label }}
+                </div>
+              </div>
+              <div class="text-xs opacity-60 mt-1 leading-relaxed">
+                {{ row.description }}
+              </div>
+            </div>
+            <n-tag :type="permissionStatusType(permissions[row.key])" :bordered="false" size="small">
+              {{ permissionStatusText(permissions[row.key]) }}
             </n-tag>
           </div>
-        </div>
-      </div>
-
-      <div v-if="ownerDiagnosticRows.length" class="mt-3 rounded-lg border border-dashed border-[var(--n-border-color)] p-3">
-        <div class="text-xs opacity-60 mb-2">
-          Fn owner 诊断
-        </div>
-        <div class="grid grid-cols-1 gap-1">
-          <div
-            v-for="[label, value] in ownerDiagnosticRows"
-            :key="label"
-            class="flex min-w-0 items-start justify-between gap-3 text-xs"
-          >
-            <span class="shrink-0 opacity-60">{{ label }}</span>
-            <code class="min-w-0 break-all text-right">{{ value }}</code>
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <n-button
+              v-if="permissions[row.key] !== true"
+              size="tiny"
+              type="primary"
+              secondary
+              :loading="actionLoading === row.key"
+              @click="requestPermission(row)"
+            >
+              {{ row.actionLabel }}
+            </n-button>
+            <span v-if="row.restartHint" class="text-xs opacity-60">
+              {{ row.restartHint }}
+            </span>
           </div>
         </div>
       </div>
 
-      <n-alert
-        v-if="runtimeStatus?.writeback.last_error"
-        class="mt-3"
-        type="warning"
-        :bordered="false"
-      >
-        最近错误：{{ runtimeStatus.writeback.last_error }}
+      <div class="rounded-lg border border-[var(--n-border-color)] bg-[var(--n-card-color)] p-4">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div class="text-sm font-medium">
+              Fn 浮层与写回目标
+            </div>
+            <div class="text-xs opacity-60 mt-1">
+              当前 Fn 为固定全局触发键；这里仅做检查和清理。
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <n-button
+              size="tiny"
+              :loading="overlayLoading === 'show'"
+              @click="runOverlayAction('reveal_speech_overlay_window', 'show', '语音浮层已显示')"
+            >
+              显示浮层
+            </n-button>
+            <n-button
+              size="tiny"
+              :loading="overlayLoading === 'hide'"
+              @click="runOverlayAction('hide_speech_overlay_window', 'hide', '语音浮层已隐藏')"
+            >
+              隐藏浮层
+            </n-button>
+            <n-button
+              size="tiny"
+              type="warning"
+              secondary
+              :loading="overlayLoading === 'stop'"
+              @click="runOverlayAction('stop_native_speech', 'stop', '语音识别已停止')"
+            >
+              停止识别
+            </n-button>
+          </div>
+        </div>
+
+        <div class="mt-4 rounded-lg border border-dashed border-[var(--n-border-color)] p-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="text-xs opacity-60">
+              最近写回目标
+            </div>
+            <n-tag
+              :type="capturedOwnApp ? 'warning' : hasCapturedTarget ? 'success' : 'default'"
+              :bordered="false"
+              size="small"
+            >
+              {{ targetBundleId || '未捕获' }}
+            </n-tag>
+          </div>
+          <n-alert v-if="capturedOwnApp" class="mt-3" type="warning" :bordered="false">
+            最近目标是 iterate 自身，可能表示显示浮层前没有保留真实输入 App。
+          </n-alert>
+        </div>
+
+        <div v-if="runtimeRows.length" class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div
+            v-for="row in runtimeRows"
+            :key="row.label"
+            class="rounded-lg bg-black-100 px-3 py-2"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-xs opacity-60">
+                {{ row.label }}
+              </div>
+              <n-tag :type="runtimeStatusType(row)" :bordered="false" size="small">
+                {{ row.detail }}
+              </n-tag>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="ownerDiagnosticRows.length" class="mt-3 rounded-lg border border-dashed border-[var(--n-border-color)] p-3">
+          <div class="text-xs opacity-60 mb-2">
+            Fn owner 诊断
+          </div>
+          <div class="grid grid-cols-1 gap-1">
+            <div
+              v-for="[label, value] in ownerDiagnosticRows"
+              :key="label"
+              class="flex min-w-0 items-start justify-between gap-3 text-xs"
+            >
+              <span class="shrink-0 opacity-60">{{ label }}</span>
+              <code class="min-w-0 break-all text-right">{{ value }}</code>
+            </div>
+          </div>
+        </div>
+
+        <n-alert
+          v-if="runtimeStatus?.writeback.last_error"
+          class="mt-3"
+          type="warning"
+          :bordered="false"
+        >
+          最近错误：{{ runtimeStatus.writeback.last_error }}
+        </n-alert>
+      </div>
+
+      <n-alert v-if="lastError" type="error" :bordered="false">
+        {{ lastError }}
       </n-alert>
-    </div>
 
-    <n-alert v-if="lastError" type="error" :bordered="false">
-      {{ lastError }}
-    </n-alert>
-
-    <n-alert type="info" :bordered="false">
-      运行日志：<code>{{ displayedLogPath }}</code>。runtime status 会显示 Fn owner、overlay ready、pending toggle、speech active 与最近写回状态。
-    </n-alert>
+      <n-alert type="info" :bordered="false">
+        运行日志：<code>{{ displayedLogPath }}</code>。runtime status 会显示 Fn owner、overlay ready、pending toggle、speech active 与最近写回状态。
+      </n-alert>
+    </template>
   </div>
 </template>

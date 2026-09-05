@@ -1613,15 +1613,20 @@ pub async fn setup_application(app_handle: &AppHandle) -> Result<(), String> {
         }
     }
 
-    // 注册全局快捷键：Shift+Cmd+K 截图
-    #[cfg(target_os = "macos")]
+    // 注册全局截图快捷键：macOS Shift+Cmd+K，Windows Shift+Ctrl+K。
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
         // 防抖：记录上次截图时间，500ms 内不重复触发
         static LAST_SCREENSHOT_TIME: AtomicU64 = AtomicU64::new(0);
 
         let app_handle_clone = app_handle.clone();
-        if let Ok(shortcut) = "Shift+Cmd+K".parse::<Shortcut>() {
+        let shortcut_spec = if cfg!(target_os = "macos") {
+            "Shift+Cmd+K"
+        } else {
+            "Shift+Ctrl+K"
+        };
+        if let Ok(shortcut) = shortcut_spec.parse::<Shortcut>() {
             let _ = app_handle.global_shortcut().on_shortcut(
                 shortcut,
                 move |_app, _shortcut, event| {
@@ -1687,7 +1692,48 @@ pub async fn setup_application(app_handle: &AppHandle) -> Result<(), String> {
                     });
                 },
             );
-            log_important!(info, "全局快捷键 Shift+Cmd+K 已注册");
+            log_important!(info, "全局截图快捷键 {} 已注册", shortcut_spec);
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+
+        if let Err(error) = crate::native_speech::overlay::ensure_windows_overlay(app_handle) {
+            log::warn!("Windows 语音浮层初始化失败: {}", error);
+        }
+
+        let app_handle_clone = app_handle.clone();
+        if let Ok(shortcut) =
+            crate::native_speech::windows::WINDOWS_SPEECH_SHORTCUT.parse::<Shortcut>()
+        {
+            let _ =
+                app_handle
+                    .global_shortcut()
+                    .on_shortcut(shortcut, move |app, _shortcut, event| {
+                        if event.state != ShortcutState::Pressed {
+                            return;
+                        }
+                        let enabled = app
+                            .state::<AppState>()
+                            .global_shortcut_enabled
+                            .load(Ordering::Relaxed);
+                        if !enabled {
+                            return;
+                        }
+
+                        if let Err(error) = crate::native_speech::windows::start_windows_dictation(
+                            app_handle_clone.clone(),
+                        ) {
+                            log::warn!("Windows 全局语音启动失败: {}", error);
+                        }
+                    });
+            log_important!(
+                info,
+                "Windows 全局语音快捷键 {} 已注册",
+                crate::native_speech::windows::WINDOWS_SPEECH_SHORTCUT
+            );
         }
     }
 
