@@ -2481,7 +2481,76 @@ fn resolve_codex_desktop_cli() -> Result<PathBuf, String> {
 }
 
 #[cfg(target_os = "windows")]
+fn codex_desktop_app_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        let windows_apps = PathBuf::from(program_files).join("WindowsApps");
+        if let Ok(entries) = std::fs::read_dir(windows_apps) {
+            let mut directories = entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.to_ascii_lowercase().starts_with("openai.codex_"))
+                })
+                .collect::<Vec<_>>();
+            directories.sort_by_key(|path| {
+                std::fs::metadata(path)
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+            });
+            directories.reverse();
+            candidates.extend(
+                directories
+                    .into_iter()
+                    .map(|directory| directory.join("app").join("ChatGPT.exe")),
+            );
+        }
+    }
+
+    candidates.dedup();
+    candidates
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_codex_desktop_app_exe() -> Result<PathBuf, String> {
+    let candidates = codex_desktop_app_candidates();
+    candidates
+        .iter()
+        .find(|candidate| candidate.is_file())
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "未找到官方 Codex Desktop App；已检查：{}",
+                candidates
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
+}
+
+#[cfg(target_os = "windows")]
 fn launch_codex_desktop_project(project_path: &str) -> Result<(), String> {
+    if let Ok(app_exe) = resolve_codex_desktop_app_exe() {
+        match std::process::Command::new(&app_exe)
+            .arg(project_path)
+            .without_console_window()
+            .spawn()
+        {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                log::warn!(
+                    "官方 Codex Desktop App 直接打开项目失败，回退到 CLI：{}",
+                    error
+                );
+            }
+        }
+    }
+
     let codex_cli = resolve_codex_desktop_cli()?;
     let output = std::process::Command::new(&codex_cli)
         .args(["app", project_path])
@@ -2507,6 +2576,22 @@ fn launch_codex_desktop_project(project_path: &str) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn launch_codex_desktop_deeplink(url: &str) -> Result<(), String> {
+    if let Ok(app_exe) = resolve_codex_desktop_app_exe() {
+        match std::process::Command::new(&app_exe)
+            .arg(url)
+            .without_console_window()
+            .spawn()
+        {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                log::warn!(
+                    "官方 Codex Desktop App 直接打开 deeplink 失败，回退到系统协议：{}",
+                    error
+                );
+            }
+        }
+    }
+
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
