@@ -2546,7 +2546,7 @@ fn launch_codex_desktop(project_path: Option<&str>) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn windows_foreground_executable_name() -> Option<String> {
+fn windows_foreground_executable_path() -> Option<PathBuf> {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -2583,20 +2583,39 @@ fn windows_foreground_executable_name() -> Option<String> {
         return None;
     }
 
-    let path = String::from_utf16_lossy(&buffer[..size as usize]);
-    Path::new(&path)
+    Some(PathBuf::from(String::from_utf16_lossy(
+        &buffer[..size as usize],
+    )))
+}
+
+#[cfg(target_os = "windows")]
+fn is_codex_desktop_foreground_path(path: &Path) -> bool {
+    let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
-        .map(|name| name.to_ascii_lowercase())
+        .map(|name| name.to_ascii_lowercase());
+
+    if file_name.as_deref() == Some("codex.exe") {
+        return true;
+    }
+
+    if file_name.as_deref() != Some("chatgpt.exe") {
+        return false;
+    }
+
+    path.to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+        .contains("/windowsapps/openai.codex_")
 }
 
 #[cfg(target_os = "windows")]
 fn wait_for_codex_foreground(timeout: std::time::Duration) -> bool {
     let started = std::time::Instant::now();
     while started.elapsed() < timeout {
-        if windows_foreground_executable_name()
+        if windows_foreground_executable_path()
             .as_deref()
-            .is_some_and(|name| name == "codex.exe")
+            .is_some_and(is_codex_desktop_foreground_path)
         {
             return true;
         }
@@ -5627,6 +5646,27 @@ mod tests {
         ));
         assert!(!activation_gate_required_for_build(false, Some("1"), false));
         assert!(!activation_gate_required_for_build(true, Some("1"), true));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn codex_foreground_guard_accepts_only_codex_cli_or_official_windows_app() {
+        assert!(super::is_codex_desktop_foreground_path(
+            std::path::Path::new(r"C:\Users\test\AppData\Local\OpenAI\Codex\bin\build\codex.exe")
+        ));
+        assert!(super::is_codex_desktop_foreground_path(
+            std::path::Path::new(
+                r"C:\Program Files\WindowsApps\OpenAI.Codex_26.901.5280.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe"
+            )
+        ));
+        assert!(!super::is_codex_desktop_foreground_path(
+            std::path::Path::new(
+                r"C:\Program Files\WindowsApps\OpenAI.ChatGPT_1.0_x64__2p2nqsd0c76g0\app\ChatGPT.exe"
+            )
+        ));
+        assert!(!super::is_codex_desktop_foreground_path(
+            std::path::Path::new(r"C:\Temp\ChatGPT.exe")
+        ));
     }
 
     #[test]
