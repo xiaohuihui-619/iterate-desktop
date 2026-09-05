@@ -2257,6 +2257,15 @@ fn relay_bridge_message_from_payload(payload: &Value) -> Result<Value> {
     {
         return Err(anyhow!("relay mcp_action missing project_path"));
     }
+    if action_payload
+        .get("request_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        return Err(anyhow!("relay mcp_action missing request_id"));
+    }
 
     Ok(message)
 }
@@ -4157,6 +4166,16 @@ mod tests {
         }))
         .unwrap_err();
         assert!(missing_project.to_string().contains("missing project_path"));
+
+        let missing_request = relay_bridge_message_from_payload(&json!({
+            "action": "submit",
+            "project_path": "/Users/test/project",
+            "user_input": "hello"
+        }))
+        .unwrap_err();
+        assert!(missing_request
+            .to_string()
+            .contains("missing request_id"));
 
         let unsupported = relay_bridge_message_from_payload(&json!({
             "message_type": "mcp_action",
