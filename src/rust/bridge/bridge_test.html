@@ -775,6 +775,20 @@
             ws.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data);
+                    if (msg.message_type === 'relay_error') {
+                        const relayError = msg.payload?.error || 'relay_error';
+                        setMainConnectionState('warn', '回复未送达，正在重新同步');
+                        setWebSocketChip('warn', '回复未送达');
+                        const footer = document.getElementById('mcp-footer');
+                        footer?.querySelectorAll('button').forEach(btn => {
+                            btn.disabled = false;
+                            btn.style.opacity = '1';
+                            btn.style.pointerEvents = 'auto';
+                        });
+                        console.error('Relay 拒绝手机回复:', relayError);
+                        requestSync();
+                        return;
+                    }
                     if (msg.message_type === 'mcp_state') {
                         if (msg.payload.customPrompts) customPrompts = msg.payload.customPrompts;
                         renderState(msg.payload);
@@ -849,6 +863,14 @@
 
         function sendAction(action) {
             if (ws && ws.readyState === WebSocket.OPEN) {
+                const routeContext = currentRouteContext();
+                if (!routeContext.request_id || !routeContext.project_path) {
+                    setMainConnectionState('warn', '请求身份缺失，正在重新同步');
+                    setWebSocketChip('warn', '等待同步');
+                    requestSync();
+                    return;
+                }
+
                 // 即时反馈：禁用所有按钮并半透明
                 const footer = document.getElementById('mcp-footer');
                 if (footer) {
@@ -873,7 +895,7 @@
                     user_input: userInput,
                     selected_options: selectedOptions,
                     images: uploadedImages, // 发送图片数据
-                    ...currentRouteContext()
+                    ...routeContext
                 };
                 ws.send(JSON.stringify({ message_type: 'mcp_action', payload: payload }));
                 

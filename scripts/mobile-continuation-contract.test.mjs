@@ -30,5 +30,16 @@ test('mobile bridge sends the pending request identity with every mcp action', (
 
   assert.match(routeContext, /const requestId = pickFirstString\(currentRequest, \['id', 'request_id', 'requestId'\]\)/)
   assert.match(routeContext, /request_id: requestId/)
-  assert.match(sendAction, /\.\.\.currentRouteContext\(\)/)
+  assert.match(sendAction, /const routeContext = currentRouteContext\(\)/)
+  assert.match(sendAction, /!routeContext\.request_id \|\| !routeContext\.project_path/)
+  assert.match(sendAction, /\.\.\.routeContext/)
+})
+
+test('mobile bridge surfaces relay rejection and retries state sync instead of looking sent', () => {
+  const socketHandler = section(mobileBridge, 'ws.onmessage = (event) =>', 'ws.onerror = () =>')
+
+  assert.match(socketHandler, /msg\.message_type === 'relay_error'/)
+  assert.match(socketHandler, /回复未送达，正在重新同步/)
+  assert.match(socketHandler, /btn\.disabled = false/)
+  assert.match(socketHandler, /requestSync\(\)/)
 })
