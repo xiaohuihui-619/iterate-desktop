@@ -1613,7 +1613,7 @@ pub async fn setup_application(app_handle: &AppHandle) -> Result<(), String> {
         }
     }
 
-    // macOS 保持原来的系统级快捷键。Windows popup 采用窗口内 Ctrl+Shift+K，
+    // macOS 保持原来的系统级快捷键。Windows popup 采用窗口内 Ctrl+Alt+K，
     // 避免多 iterate 进程争抢同一个 RegisterHotKey，导致实际聚焦的 popup 收不到事件。
     #[cfg(target_os = "macos")]
     {

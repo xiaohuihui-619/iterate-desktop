@@ -1774,13 +1774,13 @@ let unlistenScreenshot: (() => void) | null = null
 
 // Windows 的 iterate popup 运行在独立进程中，不能依赖第一个 iterate 进程抢到的
 // 系统级 RegisterHotKey。macOS 继续走 Rust 全局快捷键；Windows 在当前聚焦 popup
-// 内处理 Ctrl+Shift+K，用户能力与 macOS 原逻辑一致（原逻辑同样只对聚焦窗口生效）。
+// 内处理 Ctrl+Alt+K，避开 WebView2 自带的 Ctrl+Shift+K（Duplicate Tab）快捷键。
 async function handleWindowsScreenshotShortcut(event: KeyboardEvent) {
   if (!windowsPlatform
     || event.code !== 'KeyK'
     || !event.ctrlKey
-    || !event.shiftKey
-    || event.altKey
+    || !event.altKey
+    || event.shiftKey
     || event.metaKey
     || event.repeat
     || windowsScreenshotPending) {
