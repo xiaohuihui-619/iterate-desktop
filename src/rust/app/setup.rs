@@ -1613,19 +1613,16 @@ pub async fn setup_application(app_handle: &AppHandle) -> Result<(), String> {
         }
     }
 
-    // 注册全局截图快捷键：macOS Shift+Cmd+K，Windows Shift+Ctrl+K。
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    // macOS 保持原来的系统级快捷键。Windows popup 采用窗口内 Ctrl+Shift+K，
+    // 避免多 iterate 进程争抢同一个 RegisterHotKey，导致实际聚焦的 popup 收不到事件。
+    #[cfg(target_os = "macos")]
     {
         use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
         // 防抖：记录上次截图时间，500ms 内不重复触发
         static LAST_SCREENSHOT_TIME: AtomicU64 = AtomicU64::new(0);
 
         let app_handle_clone = app_handle.clone();
-        let shortcut_spec = if cfg!(target_os = "macos") {
-            "Shift+Cmd+K"
-        } else {
-            "Shift+Ctrl+K"
-        };
+        let shortcut_spec = "Shift+Cmd+K";
         if let Ok(shortcut) = shortcut_spec.parse::<Shortcut>() {
             let _ = app_handle.global_shortcut().on_shortcut(
                 shortcut,
