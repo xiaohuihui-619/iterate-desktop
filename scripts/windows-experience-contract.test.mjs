@@ -311,7 +311,7 @@ test('Windows global screenshot keeps the Mac capability with a native Windows c
   assert.doesNotMatch(setup, /Shift\+Ctrl\+K/)
   assert.match(setup, /capture_screenshot\(\)\.await/)
   assert.match(input, /async function handleWindowsScreenshotShortcut\(event: KeyboardEvent\)/)
-  assert.match(input, /event\.code !== 'KeyK'[\s\S]*?!event\.ctrlKey[\s\S]*?!event\.altKey[\s\S]*?event\.shiftKey/)
+  assert.match(input, /event\.code !== 'F8'[\s\S]*?event\.ctrlKey[\s\S]*?event\.altKey[\s\S]*?event\.shiftKey[\s\S]*?event\.metaKey/)
   assert.match(input, /await webview\.hide\(\)[\s\S]*?invoke<string>\('capture_screenshot'\)[\s\S]*?await webview\.show\(\)[\s\S]*?await webview\.setFocus\(\)/)
   assert.match(input, /window\.addEventListener\('keydown', handleWindowsScreenshotShortcut\)/)
   assert.match(input, /window\.removeEventListener\('keydown', handleWindowsScreenshotShortcut\)/)
