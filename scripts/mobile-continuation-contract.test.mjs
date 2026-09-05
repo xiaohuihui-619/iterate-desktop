@@ -4,6 +4,7 @@ import test from 'node:test'
 
 const relay = await readFile(new URL('../src/rust/relay.rs', import.meta.url), 'utf8')
 const mobileBridge = await readFile(new URL('../src/rust/bridge/bridge_test.html', import.meta.url), 'utf8')
+const bridgeWs = await readFile(new URL('../src/rust/bridge/ws.rs', import.meta.url), 'utf8')
 const networkParse = await readFile(new URL('../src/rust/bridge/network_parse.rs', import.meta.url), 'utf8')
 
 function section(source, startMarker, endMarker) {
@@ -45,9 +46,16 @@ test('mobile bridge surfaces relay rejection and retries state sync instead of l
   assert.match(socketHandler, /requestSync\(\)/)
 })
 
-test('mobile LAN discovery rejects RFC 2544 fake-IP interfaces without rejecting Tailscale', () => {
+test('mobile LAN discovery rejects RFC 2544 fake-IP routes and recovers the private Windows default-route interface', () => {
   assert.match(networkParse, /Some\(\[198, second, _, _\]\).*\(18\.\.=19\)/)
-  assert.match(networkParse, /find\(\|line\| is_valid_ipv4\(line\) && !is_rfc2544_benchmark_ipv4\(line\)\)/)
-  assert.match(networkParse, /parse_first_ipv4_line\("198\.18\.0\.1\\n192\.168\.0\.101\\n"\)/)
-  assert.match(networkParse, /parse_first_ipv4_line\("100\.64\.0\.1\\n"\)/)
+  assert.match(networkParse, /Some\(\[10, _, _, _\]\).*Some\(\[172, 16\.\.=31, _, _\]\).*Some\(\[192, 168, _, _\]\)/s)
+  assert.match(networkParse, /columns\[0\] != "0\.0\.0\.0" \|\| columns\[1\] != "0\.0\.0\.0"/)
+  assert.match(networkParse, /parse_windows_private_default_route_ipv4\(routes\)/)
+
+  const lanDetection = section(bridgeWs, 'fn detect_windows_private_lan_ipv4_from_routes', 'struct PairingCandidatesResult')
+  assert.match(lanDetection, /Command::new\("route"\)/)
+  assert.match(lanDetection, /\.args\(\["print", "-4"\]\)/)
+  assert.match(lanDetection, /CREATE_NO_WINDOW/)
+  assert.match(lanDetection, /is_rfc2544_benchmark_ipv4\(&ip\)/)
+  assert.match(lanDetection, /detect_windows_private_lan_ipv4_from_routes\(\)/)
 })

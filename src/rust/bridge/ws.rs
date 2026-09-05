@@ -67,7 +67,8 @@ use super::mcp_state_extract::{
 #[cfg(test)]
 use super::network_parse::is_tailscale_ipv4;
 use super::network_parse::{
-    is_valid_ipv4, parse_first_ipv4_line, parse_first_tailscale_ipv4_from_ifconfig,
+    is_rfc2544_benchmark_ipv4, is_valid_ipv4, parse_first_ipv4_line,
+    parse_first_tailscale_ipv4_from_ifconfig, parse_windows_private_default_route_ipv4,
 };
 use super::notification_payload::{
     bridge_payload_suppresses_remote_notification, extract_notification_body,
@@ -2619,6 +2620,24 @@ async fn detect_tailscale_ipv4_with_source() -> Option<(String, String)> {
     None
 }
 
+#[cfg(target_os = "windows")]
+fn detect_windows_private_lan_ipv4_from_routes() -> Option<String> {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    let output = std::process::Command::new("route")
+        .args(["print", "-4"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    parse_windows_private_default_route_ipv4(&String::from_utf8_lossy(&output.stdout))
+}
+
 fn detect_lan_ipv4() -> Option<String> {
     let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("8.8.8.8:80").ok()?;
@@ -2626,7 +2645,17 @@ fn detect_lan_ipv4() -> Option<String> {
     if ip.is_loopback() || !ip.is_ipv4() {
         return None;
     }
-    Some(ip.to_string())
+    let ip = ip.to_string();
+    if !is_rfc2544_benchmark_ipv4(&ip) {
+        return Some(ip);
+    }
+
+    #[cfg(target_os = "windows")]
+    if let Some(physical_ip) = detect_windows_private_lan_ipv4_from_routes() {
+        return Some(physical_ip);
+    }
+
+    None
 }
 
 struct PairingCandidatesResult {
