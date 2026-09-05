@@ -4,6 +4,7 @@ import test from 'node:test'
 
 const relay = await readFile(new URL('../src/rust/relay.rs', import.meta.url), 'utf8')
 const mobileBridge = await readFile(new URL('../src/rust/bridge/bridge_test.html', import.meta.url), 'utf8')
+const networkParse = await readFile(new URL('../src/rust/bridge/network_parse.rs', import.meta.url), 'utf8')
 
 function section(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker)
@@ -42,4 +43,11 @@ test('mobile bridge surfaces relay rejection and retries state sync instead of l
   assert.match(socketHandler, /回复未送达，正在重新同步/)
   assert.match(socketHandler, /btn\.disabled = false/)
   assert.match(socketHandler, /requestSync\(\)/)
+})
+
+test('mobile LAN discovery rejects RFC 2544 fake-IP interfaces without rejecting Tailscale', () => {
+  assert.match(networkParse, /Some\(\[198, second, _, _\]\).*\(18\.\.=19\)/)
+  assert.match(networkParse, /find\(\|line\| is_valid_ipv4\(line\) && !is_rfc2544_benchmark_ipv4\(line\)\)/)
+  assert.match(networkParse, /parse_first_ipv4_line\("198\.18\.0\.1\\n192\.168\.0\.101\\n"\)/)
+  assert.match(networkParse, /parse_first_ipv4_line\("100\.64\.0\.1\\n"\)/)
 })
