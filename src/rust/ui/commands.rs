@@ -5468,39 +5468,127 @@ pub async fn capture_screenshot() -> Result<String, String> {
 
     #[cfg(target_os = "windows")]
     {
-        let temp_path = std::env::temp_dir().join(format!(
-            "iterate_screenshot_{}_{}.png",
-            std::process::id(),
-            chrono::Utc::now().timestamp_millis()
-        ));
-        let escaped_path = temp_path.to_string_lossy().replace('\'', "''");
-        let script = format!(
-            "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $b=[System.Windows.Forms.SystemInformation]::VirtualScreen; $bmp=New-Object System.Drawing.Bitmap $b.Width,$b.Height; $g=[System.Drawing.Graphics]::FromImage($bmp); try {{ $g.CopyFromScreen($b.Left,$b.Top,0,0,$b.Size); $bmp.Save('{escaped_path}',[System.Drawing.Imaging.ImageFormat]::Png) }} finally {{ $g.Dispose(); $bmp.Dispose() }}"
-        );
+        use image::codecs::png::PngEncoder;
+        use image::{ExtendedColorType, ImageEncoder};
+        use std::ffi::c_void;
+        use windows_sys::Win32::Graphics::Gdi::{
+            BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
+            SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT, DIB_RGB_COLORS,
+            SRCCOPY,
+        };
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+            SM_YVIRTUALSCREEN,
+        };
 
-        let output = std::process::Command::new("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-WindowStyle",
-                "Hidden",
-                "-Command",
-                script.as_str(),
-            ])
-            .without_console_window()
-            .output()
-            .map_err(|e| format!("执行 Windows 截图失败: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Err(format!("Windows 截图命令失败: {}", stderr));
+        let left = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
+        let top = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+        let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
+        let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) };
+        if width <= 0 || height <= 0 {
+            return Err(format!("Windows 虚拟桌面尺寸无效: {}x{}", width, height));
         }
 
-        let data = std::fs::read(&temp_path).map_err(|e| format!("读取截图文件失败: {}", e))?;
-        let _ = std::fs::remove_file(&temp_path);
+        let screen_dc = unsafe { GetDC(std::ptr::null_mut()) };
+        if screen_dc.is_null() {
+            return Err("获取 Windows 屏幕 DC 失败".to_string());
+        }
+
+        let memory_dc = unsafe { CreateCompatibleDC(screen_dc) };
+        if memory_dc.is_null() {
+            unsafe {
+                ReleaseDC(std::ptr::null_mut(), screen_dc);
+            }
+            return Err("创建 Windows 截图内存 DC 失败".to_string());
+        }
+
+        let mut bitmap_info = BITMAPINFO::default();
+        bitmap_info.bmiHeader = BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            ..Default::default()
+        };
+        let mut bits: *mut c_void = std::ptr::null_mut();
+        let bitmap = unsafe {
+            CreateDIBSection(
+                screen_dc,
+                &bitmap_info,
+                DIB_RGB_COLORS,
+                &mut bits,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if bitmap.is_null() || bits.is_null() {
+            unsafe {
+                DeleteDC(memory_dc);
+                ReleaseDC(std::ptr::null_mut(), screen_dc);
+            }
+            return Err("创建 Windows 截图 DIB 失败".to_string());
+        }
+
+        let previous_object = unsafe { SelectObject(memory_dc, bitmap) };
+        if previous_object.is_null() {
+            unsafe {
+                DeleteObject(bitmap);
+                DeleteDC(memory_dc);
+                ReleaseDC(std::ptr::null_mut(), screen_dc);
+            }
+            return Err("选择 Windows 截图位图失败".to_string());
+        }
+
+        let copied = unsafe {
+            BitBlt(
+                memory_dc,
+                0,
+                0,
+                width,
+                height,
+                screen_dc,
+                left,
+                top,
+                SRCCOPY | CAPTUREBLT,
+            )
+        };
+        if copied == 0 {
+            unsafe {
+                SelectObject(memory_dc, previous_object);
+                DeleteObject(bitmap);
+                DeleteDC(memory_dc);
+                ReleaseDC(std::ptr::null_mut(), screen_dc);
+            }
+            return Err("Windows BitBlt 截图失败".to_string());
+        }
+
+        let byte_len = width as usize * height as usize * 4;
+        let bgra = unsafe { std::slice::from_raw_parts(bits as *const u8, byte_len) };
+        let mut rgba = vec![0u8; byte_len];
+        for (source, target) in bgra.chunks_exact(4).zip(rgba.chunks_exact_mut(4)) {
+            target[0] = source[2];
+            target[1] = source[1];
+            target[2] = source[0];
+            target[3] = 255;
+        }
+
+        unsafe {
+            SelectObject(memory_dc, previous_object);
+            DeleteObject(bitmap);
+            DeleteDC(memory_dc);
+            ReleaseDC(std::ptr::null_mut(), screen_dc);
+        }
+
+        let mut png = Vec::new();
+        PngEncoder::new(&mut png)
+            .write_image(&rgba, width as u32, height as u32, ExtendedColorType::Rgba8)
+            .map_err(|e| format!("编码 Windows 截图 PNG 失败: {}", e))?;
+
         return Ok(format!(
             "data:image/png;base64,{}",
-            base64_013::encode(&data)
+            base64_013::encode(&png)
         ));
     }
 

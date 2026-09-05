@@ -305,10 +305,14 @@ test('Windows Codex automation has project, thread and safe new-chat routes', ()
 test('Windows global screenshot keeps the Mac capability with a native Windows capture path', () => {
   const setup = source('src/rust/app/setup.rs')
   const commands = source('src/rust/ui/commands.rs')
+  const cargo = source('Cargo.toml')
   assert.match(setup, /Shift\+Ctrl\+K/)
   assert.match(setup, /capture_screenshot\(\)\.await/)
-  assert.match(commands, /#\[cfg\(target_os = "windows"\)\][\s\S]*?System\.Windows\.Forms[\s\S]*?CopyFromScreen/)
-  assert.match(commands, /Command::new\("powershell\.exe"\)[\s\S]*?without_console_window\(\)/)
+  assert.match(commands, /#\[cfg\(target_os = "windows"\)\][\s\S]*?CreateDIBSection[\s\S]*?BitBlt/)
+  assert.match(commands, /PngEncoder::new[\s\S]*?ExtendedColorType::Rgba8/)
+  assert.doesNotMatch(commands, /iterate_screenshot_[\s\S]*?System\.Windows\.Forms/)
+  assert.match(cargo, /"Win32_Graphics_Gdi"/)
+  assert.match(cargo, /image = \{ version = "0\.25\.10"/)
 })
 
 test('Windows global speech uses a real local recognizer and reuses iterate post-processing', () => {
