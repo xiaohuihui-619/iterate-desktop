@@ -254,6 +254,8 @@ function isDisplayableProjectPath(projectPath: string | null | undefined): proje
     return false
 
   return trimmed.startsWith('/')
+    || /^[a-z]:[\\/]/i.test(trimmed)
+    || trimmed.startsWith('\\\\')
 }
 
 function resolveDisplayProjectPath(request: any): string | null {

@@ -287,6 +287,7 @@ test('Windows prevent-sleep uses SetThreadExecutionState on a dedicated guard th
 
 test('Windows Codex automation has project, thread and safe new-chat routes', () => {
   const commands = source('src/rust/ui/commands.rs')
+  const appContent = source('src/frontend/components/AppContent.vue')
   const cargo = source('Cargo.toml')
   assert.match(commands, /#\[cfg\(target_os = "windows"\)\]\s*fn codex_desktop_cli_candidates/)
   assert.match(commands, /\.args\(\["app", project_path\]\)/)
@@ -309,6 +310,8 @@ test('Windows Codex automation has project, thread and safe new-chat routes', ()
   assert.match(commands, /\.join\("app"\)\.join\("ChatGPT\.exe"\)/)
   assert.match(commands, /fn resolve_codex_desktop_app_exe\(\)/)
   assert.match(commands, /官方 Codex Desktop App 直接打开 deeplink 失败，回退到系统协议/)
+  assert.ok(appContent.includes('/^[a-z]:[\\\\/]/i.test(trimmed)'))
+  assert.ok(appContent.includes("trimmed.startsWith('\\\\\\\\')"))
   assert.match(cargo, /"Win32_UI_Input_KeyboardAndMouse"/)
   assert.match(cargo, /"Win32_UI_WindowsAndMessaging"/)
 })
