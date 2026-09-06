@@ -2576,49 +2576,13 @@ fn launch_codex_desktop_project(project_path: &str) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn launch_codex_desktop_deeplink(url: &str) -> Result<(), String> {
-    if let Ok(app_exe) = resolve_codex_desktop_app_exe() {
-        match std::process::Command::new(&app_exe)
-            .arg(url)
-            .without_console_window()
-            .spawn()
-        {
-            Ok(_) => return Ok(()),
-            Err(error) => {
-                log::warn!(
-                    "官方 Codex Desktop App 直接打开 deeplink 失败，回退到系统协议：{}",
-                    error
-                );
-            }
-        }
-    }
-
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::UI::Shell::ShellExecuteW;
-    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-
-    let wide_url = std::ffi::OsStr::new(url)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let result = unsafe {
-        ShellExecuteW(
-            std::ptr::null_mut(),
-            std::ptr::null(),
-            wide_url.as_ptr(),
-            std::ptr::null(),
-            std::ptr::null(),
-            SW_SHOWNORMAL,
-        )
-    };
-
-    if result as isize > 32 {
-        Ok(())
-    } else {
-        Err(format!(
-            "调用 Codex deeplink 失败，ShellExecuteW={}",
-            result as isize
-        ))
-    }
+    let app_exe = resolve_codex_desktop_app_exe()?;
+    std::process::Command::new(&app_exe)
+        .arg(url)
+        .without_console_window()
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("官方 Codex Desktop App 打开 deeplink 失败: {error}"))
 }
 
 #[cfg(target_os = "windows")]
@@ -2679,10 +2643,6 @@ fn is_codex_desktop_foreground_path(path: &Path) -> bool {
         .file_name()
         .and_then(|name| name.to_str())
         .map(|name| name.to_ascii_lowercase());
-
-    if file_name.as_deref() == Some("codex.exe") {
-        return true;
-    }
 
     if file_name.as_deref() != Some("chatgpt.exe") {
         return false;
@@ -2820,11 +2780,11 @@ end tell
 #[cfg(target_os = "windows")]
 #[tauri::command]
 pub async fn probe_codex_automation_permission() -> Result<CodexAutomationProbeResult, String> {
-    match resolve_codex_desktop_cli() {
+    match resolve_codex_desktop_app_exe().or_else(|_| resolve_codex_desktop_cli()) {
         Ok(path) => Ok(CodexAutomationProbeResult {
             status: "granted".to_string(),
             details: format!(
-                "已确认 Windows Codex Desktop CLI 可用：{}；deeplink 自动发送仅在 Codex 确认成为前台窗口时执行。",
+                "已确认 Windows Codex Desktop 可用：{}；自动发送仅在官方 Codex 窗口确认成为前台时执行。",
                 path.display()
             ),
         }),
