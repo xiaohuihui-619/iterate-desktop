@@ -420,6 +420,25 @@ function normalizeRequestId(request: any): string | null {
   return null
 }
 
+function normalizeCodexThreadId(request: any): string | null {
+  const candidates = [
+    request?.codex_thread_id,
+    request?.codexThreadId,
+    request?.metadata?.codex_thread_id,
+    request?.metadata?.codexThreadId,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string')
+      continue
+    const trimmed = candidate.trim()
+    if (trimmed.length > 0)
+      return trimmed
+  }
+
+  return null
+}
+
 function normalizeConversationRouteId(request: any): string | null {
   const candidates = [
     request?.timeline_route_id,
@@ -1122,21 +1141,27 @@ function handleGlobalKeyup(event: KeyboardEvent) {
   shiftKeyAlone = false
 }
 
-// 处理顶部 + 按钮：Windows 在当前请求项目创建空白新会话；macOS 保持新会话 + zhi 自动化。
+// 处理顶部 + 按钮：Windows 让 Codex 按当前上下文执行原生 New Chat；macOS 保持新会话 + zhi 自动化。
 async function handleNewChat() {
   const projectPath = reliableRequestProjectPath.value
+  const codexThreadId = normalizeCodexThreadId(props.mcpRequest)
+  const windowsPlatform = navigator.platform.toUpperCase().includes('WIN')
   void invoke('timeline_debug_log', {
     location: 'windows-real/AppContent.handleNewChat',
-    payload: { platform: navigator.platform, projectPath, route: navigator.platform.toUpperCase().includes('WIN') ? 'open_new_codex_chat' : 'open_new_codex_chat_with_text' },
+    payload: { platform: navigator.platform, projectPath, codexThreadId, route: windowsPlatform ? 'codex_thread_native_new_task' : 'open_new_codex_chat_with_text' },
   }).catch(() => {})
-  if (!projectPath) {
+  if (windowsPlatform && !codexThreadId) {
+    message.warning('当前请求没有可靠 Codex 会话 ID，未创建新对话')
+    return
+  }
+  if (!windowsPlatform && !projectPath) {
     message.warning('当前请求没有可靠项目路径，未打开 Codex')
     return
   }
 
   try {
-    if (navigator.platform.toUpperCase().includes('WIN')) {
-      await invoke('open_new_codex_chat', { projectPath })
+    if (windowsPlatform) {
+      await invoke('open_new_codex_chat', { threadId: codexThreadId })
       return
     }
 

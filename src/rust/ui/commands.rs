@@ -2306,13 +2306,6 @@ fn build_codex_new_thread_deeplink(content: &str, project_path: Option<&str>) ->
     Some(format!("codex://new?{}", query.join("&")))
 }
 
-fn build_codex_project_new_thread_deeplink(project_path: &str) -> String {
-    format!(
-        "codex://new?path={}",
-        utf8_percent_encode(project_path, NON_ALPHANUMERIC)
-    )
-}
-
 #[cfg(target_os = "macos")]
 const CODEX_DESKTOP_BUNDLE_ID: &str = "com.openai.codex";
 
@@ -2726,6 +2719,26 @@ fn post_return_keypress_to_codex() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+fn post_new_task_keypress_to_codex() -> Result<(), String> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        keybd_event, KEYEVENTF_KEYUP, VK_CONTROL,
+    };
+
+    if !wait_for_codex_foreground(std::time::Duration::from_secs(3)) {
+        return Err("Codex 未成为前台窗口，为避免误发快捷键已取消新建对话".to_string());
+    }
+
+    const VK_N: u8 = b'N';
+    unsafe {
+        keybd_event(VK_CONTROL as u8, 0, 0, 0);
+        keybd_event(VK_N, 0, 0, 0);
+        keybd_event(VK_N, 0, KEYEVENTF_KEYUP, 0);
+        keybd_event(VK_CONTROL as u8, 0, KEYEVENTF_KEYUP, 0);
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 fn open_new_codex_chat_with_applescript(
     content: &str,
@@ -2891,30 +2904,39 @@ pub async fn open_codex_thread(thread_id: String) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 #[tauri::command]
-pub async fn open_new_codex_chat(project_path: String) -> Result<(), String> {
-    let normalized_project_path = project_path.trim();
-    if normalized_project_path.is_empty() || normalized_project_path == "main_page" {
-        return Err("Codex 新对话项目路径无效".to_string());
-    }
-    if !std::path::Path::new(normalized_project_path).is_absolute() {
-        return Err("Codex 新对话仅支持绝对项目路径".to_string());
-    }
-
-    let deeplink = build_codex_project_new_thread_deeplink(normalized_project_path);
+pub async fn open_new_codex_chat(thread_id: String) -> Result<(), String> {
+    let deeplink =
+        codex_thread_deeplink(&thread_id).ok_or_else(|| "Codex 会话 ID 无效".to_string())?;
     append_timeline_debug_log(
         "windows-real/open-new-chat",
         serde_json::json!({
             "pid": std::process::id(),
-            "project_path": normalized_project_path,
-            "deeplink": deeplink,
+            "thread_id": thread_id,
+            "route": "codex-thread-native-new-task",
         }),
     );
-    launch_codex_desktop_deeplink(&deeplink)
+
+    launch_codex_desktop_deeplink(&deeplink)?;
+    if !wait_for_codex_foreground(std::time::Duration::from_secs(3)) {
+        return Err("原 Codex 会话未成为前台窗口，未创建新对话".to_string());
+    }
+
+    // Codex 的 thread deeplink 没有路由完成回调。给 Electron 一次很短的 settle，
+    // 随后再次确认前台仍是官方 Codex，避免 Ctrl+N 抢在 thread 路由切换之前。
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    if !windows_foreground_executable_path()
+        .as_deref()
+        .is_some_and(is_codex_desktop_foreground_path)
+    {
+        return Err("Codex 会话切换期间失去前台，为避免误发快捷键已取消新建对话".to_string());
+    }
+
+    post_new_task_keypress_to_codex()
 }
 
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
-pub async fn open_new_codex_chat(_project_path: String) -> Result<(), String> {
+pub async fn open_new_codex_chat(_thread_id: String) -> Result<(), String> {
     Err("当前平台暂不使用 Windows Codex 空白新会话入口".to_string())
 }
 
@@ -5899,14 +5921,6 @@ mod tests {
         });
 
         assert_eq!(extract_user_response_content(&response), None);
-    }
-
-    #[test]
-    fn codex_project_new_thread_deeplink_is_blank_and_scoped_to_project() {
-        let deeplink = super::build_codex_project_new_thread_deeplink("/Users/test/project");
-
-        assert_eq!(deeplink, "codex://new?path=%2FUsers%2Ftest%2Fproject");
-        assert!(!deeplink.contains("prompt="));
     }
 
     #[cfg(target_os = "macos")]

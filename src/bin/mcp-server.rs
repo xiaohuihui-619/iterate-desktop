@@ -31,6 +31,19 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn background_command(program: &Path) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 /// MCP server 进程启动后是否已拉取过 .cunzhi-knowledge（0=未拉，1=已拉，u64::MAX=进行中）
 static LAST_KNOWLEDGE_PULL: AtomicU64 = AtomicU64::new(0);
 
@@ -919,7 +932,7 @@ async fn start_iterate_service_with_workspace(port: u16, workspace: &str) -> boo
     let mut selected_launcher = None;
 
     for launcher in launchers {
-        let result = Command::new(&launcher)
+        let result = background_command(&launcher)
             .args(&args)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
