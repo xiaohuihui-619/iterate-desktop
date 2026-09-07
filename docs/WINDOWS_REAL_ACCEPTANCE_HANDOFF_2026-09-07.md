@@ -262,3 +262,57 @@ A Windows candidate can be considered ready for closure only after the user manu
 - closing the invoked Iterate interaction does not kill the resident Iterate app, and Codex can invoke it again immediately;
 - speech remains usable.
 
+## Follow-up source investigation — 2026-09-07 (not a new REAL result)
+
+The user narrowed the current agent's responsibility to root-cause investigation and critical fixes; another agent can perform packaging, comprehensive build checks, push, Artifact download, and installation. The changes below are **uncommitted source changes**, not an installed candidate. The installed files remain the hash-verified `c2f53dc` files described above. Do not overwrite the original manual FAIL/PASS results with these source findings.
+
+### Confirmed actual call path, correcting the initial IPC hypothesis
+
+The registered binary implements `call_zhi` in `src/bin/mcp-server.rs`, which calls the HTTP dialog service. `src/rust/app/cli.rs::handle_serve_mode` handles those dialogs by spawning a separate GUI child for every request. This is distinct from the library's `src/rust/mcp/handlers/popup.rs` resident TCP IPC path.
+
+Existing local evidence in `C:\tmp\iterate-instance-debug.log` shows:
+
+- At `2026-09-07 12:42:23`, serve PID `37172` started popup PID `41820`.
+- The same serve PID subsequently started popup PIDs `33940`, `36244`, `46024`, and `31904` for separate requests.
+- The spawn records resolve the GUI executable to `C:\Users\33553\AppData\Local\iterate\bin\iterate.exe`.
+
+Therefore first-versus-second input failure must not be explained as reuse of the same GUI HWND on this actual path. Compare separate GUI startups under the same serve, including WebView2 input ownership and initialization. The helper-script window manager was not running in the process snapshot. The old diagnostic helper still hard-codes `.local\bin`; do not mistake its old path for the installed runtime.
+
+### Critical source fixes prepared
+
+1. **Native X and resident survival.** The prior native handler called `handle_system_exit_request(..., true)`, which sets global shutdown/manual-stop state and terminates registered instances. Windows now delegates native close to the current frontend request. Active interaction close uses the existing structured `popup_closed` response and existing per-request response routing. It does not use raw `CANCELLED`: the actual serve response parser can interpret that string as empty input with `keep_going: true`. A standalone GUI exits through the existing response completion path, leaving `iterate --serve` alive. A resident GUI hides and ends its current request without draining other channels. An in-flight Send/close is ignored rather than being turned into global exit. Idle-main-window close retains its previous exit semantics, with a backend pending-request recheck.
+
+2. **Position before first reveal.** Windows standalone GUI no longer calls `show()` from builder setup before the frontend has loaded its request. Windows native-close listeners are registered before `checkMcpMode`. The existing `McpPopup` request watcher then calls `center_window`, whose order is position, unminimize, show, focus. No new timer or post-show repositioning was added. Ordinary Windows main-window launch also calls the same center-before-show operation. macOS setup/show behavior is preserved.
+
+3. **Window versus WebView focus API.** Verified against the locally installed `@tauri-apps/api` JavaScript implementation: `WebviewWindow` mixes in `[Window, Webview]` without overwriting existing methods. Consequently `getCurrentWebviewWindow().setFocus()` invokes `plugin:window|set_focus`, not `plugin:webview|set_webview_focus`. The existing `PopupInput.focusInput` was only explicitly focusing the top-level window before its DOM textarea. Windows now additionally awaits `getCurrentWebview().setFocus()` before DOM focus. This fixes the actual API-target mismatch; it does **not** prove it was the sole cause of the user's first-call failure. No additional focus timer was introduced. Speech recognition and speech UI logic were not changed.
+
+### Diagnostic points that work on the actual serve path
+
+The actual serve launcher sets `RUST_LOG=off` on GUI children and discards stdout/stderr. Ordinary `log::info!` / frontend `debug_log` instrumentation is therefore insufficient.
+
+New evidence uses the existing direct-file timeline logger at:
+
+`C:\Users\33553\Library\Logs\iterate\timeline-debug.log`
+
+- `windows-real/PopupHeader.plus`: actual top-button entry and `navigator.platform` / project path.
+- `windows-real/AppContent.handleNewChat`: selected frontend route and resolved project path.
+- `windows-real/open-project`, `project-launcher`, `deeplink-launcher`: native route, PID, official executable, and target.
+- `windows-real/input`: activation-before/after and explicit WebView-focus checkpoints, including GUI PID/TID, top HWND, foreground HWND, `GetGUIThreadInfo` active/focus HWND, and standalone status.
+
+Top `+` behavior has **not** been guessed at or rewritten again. Correlate these records for one actual click before selecting its fix. Ctrl-click project-path routing remains unchanged.
+
+### Still unresolved / do not claim fixed
+
+- **Send terminal flashes:** the actual `call_zhi` completion calls `record_conversation`, which reaches the conversation logger's `hostname`, `git add`, and `git commit`. This is a strong source lead for three flashes, not an observed process trace. Checkpoint creation also has unhidden Git commands, but it occurs before the dialog in this actual call path. No checkpoint/Git command patches were made during this investigation. First capture actual Send children, then centralize the background command policy across the confirmed logger/checkpoint paths; preserve checkpoint behavior.
+- A probe of `Win32_ProcessStartTrace` subscription was denied under the non-administrator token. No permissions or system audit settings were changed. `.ai-bridge/capture-real-process-focus.py` is an untracked bounded read-only polling aid; it can miss short-lived processes, so an empty sample does not prove no children were created. Do not submit or publish `.ai-bridge`.
+- First-call input, initial position, native X, and top `+` have no new REAL verdict. The first three have source changes; `+` has instrumentation only.
+
+### Verification and next executor
+
+- `pnpm run test:windows-experience` — **35/35 passed**. Includes new close-decision behavior tests, a test against the actual Tauri method identities, and targeted source contracts. These new checks were added to this existing package script so CI executes them.
+- `PopupHeader.codexProjectOpen.test.ts` — **2/2 passed** during this investigation.
+- ESLint on all changed frontend files — passed; a full lint run initially exposed the new Node test imports, which were corrected using the repository's existing per-file convention.
+- `rustfmt --edition 2021 --check src/rust/ui/commands.rs src/rust/ui/window_events.rs src/rust/app/builder.rs` — passed.
+- Rust compilation and Windows build are **not verified for these changes**. A worker hit an account usage limit and its unfinished patch was reviewed and corrected by the main agent; do not assume the worker completed compilation. An incidental Cargo.lock edit was removed.
+
+Next executor: retain this workspace/branch and uncommitted diff; inspect it, run the targeted checks and Windows compile/build, then follow the existing commit/push/exact-Artifact/hash/backup/install process. Do not build from the unchanged HEAD and call it this fix. Do not merge upstream or publish a Release. After installation ask only for the changed failures; obtain one `+` click's route evidence and one Send process trace as diagnosis, without retesting previously passed content/speech features. Full success remains dependent on user REAL acceptance.

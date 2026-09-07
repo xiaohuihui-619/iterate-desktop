@@ -1125,6 +1125,10 @@ function handleGlobalKeyup(event: KeyboardEvent) {
 // 处理顶部 + 按钮：Windows 只打开当前项目；macOS 保持新会话 + zhi 自动化。
 async function handleNewChat() {
   const projectPath = reliableRequestProjectPath.value
+  void invoke('timeline_debug_log', {
+    location: 'windows-real/AppContent.handleNewChat',
+    payload: { platform: navigator.platform, projectPath, route: navigator.platform.toUpperCase().includes('WIN') ? 'open_codex_project' : 'open_new_codex_chat_with_text' },
+  }).catch(() => {})
   if (!projectPath) {
     message.warning('当前请求没有可靠项目路径，未打开 Codex')
     return

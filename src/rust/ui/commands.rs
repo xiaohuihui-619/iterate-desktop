@@ -2556,7 +2556,15 @@ fn resolve_codex_desktop_app_exe() -> Result<PathBuf, String> {
 
 #[cfg(target_os = "windows")]
 fn launch_codex_desktop_project(project_path: &str) -> Result<(), String> {
+    append_timeline_debug_log(
+        "windows-real/open-project",
+        serde_json::json!({"pid": std::process::id(), "project_path": project_path}),
+    );
     if let Ok(app_exe) = resolve_codex_desktop_app_exe() {
+        append_timeline_debug_log(
+            "windows-real/project-launcher",
+            serde_json::json!({"pid": std::process::id(), "exe": app_exe, "project_path": project_path}),
+        );
         match std::process::Command::new(&app_exe)
             .arg(project_path)
             .without_console_window()
@@ -2598,6 +2606,10 @@ fn launch_codex_desktop_project(project_path: &str) -> Result<(), String> {
 #[cfg(target_os = "windows")]
 fn launch_codex_desktop_deeplink(url: &str) -> Result<(), String> {
     let app_exe = resolve_codex_desktop_app_exe()?;
+    append_timeline_debug_log(
+        "windows-real/deeplink-launcher",
+        serde_json::json!({"pid": std::process::id(), "exe": app_exe, "url": url}),
+    );
     std::process::Command::new(&app_exe)
         .arg(url)
         .without_console_window()
@@ -4215,9 +4227,44 @@ pub async fn center_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+fn log_windows_input_state(window: &tauri::WebviewWindow, phase: &str) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetGUIThreadInfo, GetWindowThreadProcessId, GUITHREADINFO,
+    };
+    let Ok(hwnd) = window.hwnd() else { return };
+    let raw_hwnd = hwnd.0 as windows_sys::Win32::Foundation::HWND;
+    let mut process_id = 0;
+    let thread_id = unsafe { GetWindowThreadProcessId(raw_hwnd, &mut process_id) };
+    let mut gui: GUITHREADINFO = unsafe { std::mem::zeroed() };
+    gui.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
+    let gui_ok = unsafe { GetGUIThreadInfo(thread_id, &mut gui) };
+    let foreground = unsafe { GetForegroundWindow() };
+    append_timeline_debug_log(
+        "windows-real/input",
+        serde_json::json!({
+            "phase": phase, "pid": process_id, "tid": thread_id, "hwnd": raw_hwnd as usize,
+            "foreground": foreground as usize, "gui_ok": gui_ok,
+            "active": gui.hwndActive as usize, "focus": gui.hwndFocus as usize,
+            "visible": window.is_visible().ok(),
+            "standalone": std::env::var_os("ITERATE_STANDALONE_MODE").is_some()
+        }),
+    );
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub fn trace_windows_input_state(app: AppHandle, phase: String) {
+    if let Some(window) = app.get_webview_window("main") {
+        log_windows_input_state(&window, &phase);
+    }
+}
+
 #[tauri::command]
 pub async fn activate_app_window(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        log_windows_input_state(&window, "activate-before");
         #[cfg(target_os = "macos")]
         {
             use objc::runtime::Object;
@@ -4272,6 +4319,8 @@ pub async fn activate_app_window(app: AppHandle) -> Result<(), String> {
         window
             .set_focus()
             .map_err(|e| format!("聚焦窗口失败: {}", e))?;
+        #[cfg(target_os = "windows")]
+        log_windows_input_state(&window, "activate-after");
     }
     Ok(())
 }

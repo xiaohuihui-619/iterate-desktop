@@ -277,6 +277,10 @@ function handleCloseCurrentDialog() {
 }
 
 function handleNewChat() {
+  void invoke('timeline_debug_log', {
+    location: 'windows-real/PopupHeader.plus',
+    payload: { platform: navigator.platform, projectPath: props.projectPath },
+  }).catch(() => {})
   emit('newChat')
 }
 

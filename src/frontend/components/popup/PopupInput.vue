@@ -1325,6 +1325,13 @@ async function focusInput(options: { registerSpeechTarget?: boolean } = {}) {
     const webview = getCurrentWebviewWindow()
     await webview.setFocus()
 
+    // WebviewWindow.setFocus resolves to Window.setFocus in Tauri's mixin order.
+    // Explicitly transfer Windows input ownership to WebView2 before focusing the DOM.
+    if (windowsPlatform) {
+      await getCurrentWebview().setFocus()
+      void invoke('trace_windows_input_state', { phase: 'input-webview-focused' }).catch(() => {})
+    }
+
     const inputElement = getTextareaElement()
 
     if (!inputElement)

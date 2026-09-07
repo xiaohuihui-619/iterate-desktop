@@ -20,7 +20,7 @@
     "test:desktop-build-targets": "node --test scripts/desktop-build-rs-target-gating.test.mjs",
     "test:desktop-community-activation": "node --test scripts/desktop-community-activation.test.mjs",
     "test:mobile-continuation-contract": "node --test scripts/mobile-continuation-contract.test.mjs",
-    "test:windows-experience": "node --test scripts/windows-experience-contract.test.mjs",
+    "test:windows-experience": "node --test scripts/windows-experience-contract.test.mjs src/frontend/utils/nativeWindowClose.test.ts src/frontend/utils/windowsWebviewFocus.test.ts src/frontend/composables/useMcpHandler.immediateDismiss.test.ts",
     "version:check": "node scripts/check-version-consistency.mjs",
     "tauri": "cargo tauri",
     "tauri:dev": "cargo tauri dev",
