@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-fn background_command(program: &str) -> Command {
+pub(super) fn background_command(program: &str) -> Command {
     let mut command = Command::new(program);
     #[cfg(target_os = "windows")]
     {

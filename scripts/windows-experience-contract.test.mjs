@@ -38,11 +38,17 @@ test('Windows MCP stdio server and serve child do not open user-visible console 
   assert.match(server, /for launcher in launchers[\s\S]*?background_command\(&launcher\)[\s\S]*?\.args\(&args\)[\s\S]*?\.spawn\(\)/)
 })
 
-test('Windows auto-checkpoint polling hides recurring Git child consoles', () => {
+test('Windows checkpoint production Git commands never open user-visible consoles', () => {
   const checkpoint = source('src/rust/mcp/tools/checkpoint/mod.rs')
+  const autoCommit = source('src/rust/mcp/tools/checkpoint/auto_commit.rs').split('#[cfg(test)]')[0]
+  const gitOps = source('src/rust/mcp/tools/checkpoint/git_ops.rs').split('#[cfg(test)]')[0]
   assert.match(checkpoint, /const CREATE_NO_WINDOW: u32 = 0x0800_0000/)
-  assert.match(checkpoint, /creation_flags\(CREATE_NO_WINDOW\)/)
+  assert.match(checkpoint, /pub\(super\) fn background_command\(program: &str\) -> Command[\s\S]*?creation_flags\(CREATE_NO_WINDOW\)/)
   assert.match(checkpoint, /background_command\("git"\)[\s\S]*?"status", "--porcelain", "--untracked-files=all"/)
+  assert.doesNotMatch(autoCommit, /Command::new\("git"\)/)
+  assert.doesNotMatch(gitOps, /Command::new\("git"\)/)
+  assert.match(autoCommit, /background_command\("git"\)[\s\S]*?"commit"/)
+  assert.match(gitOps, /background_command\("git"\)[\s\S]*?"checkout"/)
 })
 
 test('Windows shows the main window before background setup while non-Windows keeps blocking setup', () => {
