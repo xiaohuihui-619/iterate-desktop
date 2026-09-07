@@ -2306,6 +2306,13 @@ fn build_codex_new_thread_deeplink(content: &str, project_path: Option<&str>) ->
     Some(format!("codex://new?{}", query.join("&")))
 }
 
+fn build_codex_project_new_thread_deeplink(project_path: &str) -> String {
+    format!(
+        "codex://new?path={}",
+        utf8_percent_encode(project_path, NON_ALPHANUMERIC)
+    )
+}
+
 #[cfg(target_os = "macos")]
 const CODEX_DESKTOP_BUNDLE_ID: &str = "com.openai.codex";
 
@@ -2880,6 +2887,35 @@ pub async fn open_codex_thread(thread_id: String) -> Result<(), String> {
     let deeplink =
         codex_thread_deeplink(&thread_id).ok_or_else(|| "Codex 会话 ID 无效".to_string())?;
     launch_codex_desktop_deeplink(&deeplink)
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub async fn open_new_codex_chat(project_path: String) -> Result<(), String> {
+    let normalized_project_path = project_path.trim();
+    if normalized_project_path.is_empty() || normalized_project_path == "main_page" {
+        return Err("Codex 新对话项目路径无效".to_string());
+    }
+    if !std::path::Path::new(normalized_project_path).is_absolute() {
+        return Err("Codex 新对话仅支持绝对项目路径".to_string());
+    }
+
+    let deeplink = build_codex_project_new_thread_deeplink(normalized_project_path);
+    append_timeline_debug_log(
+        "windows-real/open-new-chat",
+        serde_json::json!({
+            "pid": std::process::id(),
+            "project_path": normalized_project_path,
+            "deeplink": deeplink,
+        }),
+    );
+    launch_codex_desktop_deeplink(&deeplink)
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+pub async fn open_new_codex_chat(_project_path: String) -> Result<(), String> {
+    Err("当前平台暂不使用 Windows Codex 空白新会话入口".to_string())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -5863,6 +5899,14 @@ mod tests {
         });
 
         assert_eq!(extract_user_response_content(&response), None);
+    }
+
+    #[test]
+    fn codex_project_new_thread_deeplink_is_blank_and_scoped_to_project() {
+        let deeplink = super::build_codex_project_new_thread_deeplink("/Users/test/project");
+
+        assert_eq!(deeplink, "codex://new?path=%2FUsers%2Ftest%2Fproject");
+        assert!(!deeplink.contains("prompt="));
     }
 
     #[cfg(target_os = "macos")]
