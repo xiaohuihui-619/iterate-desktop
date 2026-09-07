@@ -2517,20 +2517,41 @@ fn codex_desktop_app_candidates() -> Vec<PathBuf> {
 #[cfg(target_os = "windows")]
 fn resolve_codex_desktop_app_exe() -> Result<PathBuf, String> {
     let candidates = codex_desktop_app_candidates();
-    candidates
-        .iter()
-        .find(|candidate| candidate.is_file())
-        .cloned()
-        .ok_or_else(|| {
-            format!(
-                "未找到官方 Codex Desktop App；已检查：{}",
-                candidates
-                    .iter()
-                    .map(|path| path.display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        })
+    if let Some(candidate) = candidates.iter().find(|candidate| candidate.is_file()) {
+        return Ok(candidate.clone());
+    }
+
+    let output = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-AppxPackage -Name OpenAI.Codex | Sort-Object Version -Descending | Select-Object -First 1 -ExpandProperty InstallLocation",
+        ])
+        .without_console_window()
+        .output()
+        .map_err(|error| format!("查询官方 Codex Desktop App 失败: {error}"))?;
+
+    if output.status.success() {
+        let install_location = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !install_location.is_empty() {
+            let candidate = PathBuf::from(install_location)
+                .join("app")
+                .join("ChatGPT.exe");
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    Err(format!(
+        "未找到官方 Codex Desktop App；已检查 WindowsApps 并查询 OpenAI.Codex Appx 包。候选：{}",
+        candidates
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
 }
 
 #[cfg(target_os = "windows")]

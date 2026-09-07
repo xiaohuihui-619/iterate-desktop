@@ -722,7 +722,7 @@ watch(() => props.request, async (newRequest) => {
     void nextTick().then(() => {
       loading.value = false
       flushTimelinePrefill()
-      void scheduleInputFocus('request-visible')
+      void scheduleInputFocus('request-visible', { activateWindow: true })
     })
   }
   else {
