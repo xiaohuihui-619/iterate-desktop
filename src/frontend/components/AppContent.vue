@@ -1122,7 +1122,7 @@ function handleGlobalKeyup(event: KeyboardEvent) {
   shiftKeyAlone = false
 }
 
-// 处理顶部 + 按钮：免权限打开 Codex（优先带当前项目）
+// 处理顶部 + 按钮：Windows 只打开当前项目；macOS 保持新会话 + zhi 自动化。
 async function handleNewChat() {
   const projectPath = reliableRequestProjectPath.value
   if (!projectPath) {
@@ -1131,6 +1131,11 @@ async function handleNewChat() {
   }
 
   try {
+    if (navigator.platform.toUpperCase().includes('WIN')) {
+      await invoke('open_codex_project', { projectPath })
+      return
+    }
+
     const result = await invoke<{
       ok: boolean
       sent: boolean
