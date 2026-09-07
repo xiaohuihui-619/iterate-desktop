@@ -1645,7 +1645,7 @@ async fn call_zhi(
         let workspace = args.project_path.as_str();
         let knowledge_dir = find_knowledge_dir(workspace);
         if let Some(kdir) = knowledge_dir {
-            let result = Command::new("git")
+            let result = background_command(Path::new("git"))
                 .args(["pull", "--rebase", "--autostash", "--quiet"])
                 .current_dir(&kdir)
                 .output();

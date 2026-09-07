@@ -38,6 +38,16 @@ test('Windows MCP stdio server and serve child do not open user-visible console 
   assert.match(server, /for launcher in launchers[\s\S]*?background_command\(&launcher\)[\s\S]*?\.args\(&args\)[\s\S]*?\.spawn\(\)/)
 })
 
+test('Windows cold-start knowledge sync never opens a Git console before the popup', () => {
+  const server = source('src/bin/mcp-server.rs')
+  const start = server.indexOf('// 进程启动后第一次 call_zhi 时拉取 .cunzhi-knowledge')
+  const end = server.indexOf('LAST_KNOWLEDGE_PULL.store(1, Ordering::SeqCst)', start)
+  assert.ok(start >= 0 && end > start)
+  const coldStartSync = server.slice(start, end)
+  assert.match(coldStartSync, /background_command\(Path::new\("git"\)\)[\s\S]*?"pull", "--rebase", "--autostash", "--quiet"/)
+  assert.doesNotMatch(coldStartSync, /Command::new\("git"\)/)
+})
+
 test('Windows checkpoint production Git commands never open user-visible consoles', () => {
   const checkpoint = source('src/rust/mcp/tools/checkpoint/mod.rs')
   const autoCommit = source('src/rust/mcp/tools/checkpoint/auto_commit.rs').split('#[cfg(test)]')[0]
