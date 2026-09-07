@@ -260,7 +260,7 @@ pub fn start_windows_dictation(app: AppHandle) -> Result<bool, String> {
         WINDOWS_SPEECH_ACTIVE.store(false, Ordering::SeqCst);
         return Err(format!("显示 Windows 语音浮层失败: {error}"));
     }
-    emit_state(&app, true, "listening", "正在聆听（说完停顿即可自动完成）");
+    emit_state(&app, true, "listening", "正在聆听");
     let failure_app = app.clone();
 
     std::thread::Builder::new()
