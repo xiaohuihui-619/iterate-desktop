@@ -31,6 +31,11 @@ test('Windows root tunnel diagnostics use native HTTP and hide fallback child co
   assert.match(bridge, /async fn diagnostic_command_stdout[\s\S]*?#\[cfg\(target_os = "windows"\)\][\s\S]*?CREATE_NO_WINDOW[\s\S]*?as_std_mut\(\)\.creation_flags/)
 })
 
+test('Windows MCP stdio server does not open a user-visible console window', () => {
+  const server = source('src/bin/mcp-server.rs')
+  assert.match(server, /#!\[cfg_attr\(target_os = "windows", windows_subsystem = "windows"\)\]/)
+})
+
 test('Windows shows the main window before background setup while non-Windows keeps blocking setup', () => {
   const builder = source('src/rust/app/builder.rs')
   const showIndex = builder.indexOf('window.show()')

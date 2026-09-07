@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 //! 独立的 iterate MCP 服务器
 //!
 //! 通过 HTTP 调用 iterate 的对话 API，让其他 AI 工具可以使用 iterate 的 zhi 功能
