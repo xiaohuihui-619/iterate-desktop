@@ -1,5 +1,7 @@
 # Windows REAL Acceptance Handoff — 2026-09-07
 
+> **Historical handoff:** current project status has moved on to `docs/ITERATE_PROJECT_HANDOFF_2026-09-08.md`. Prefer the 2026-09-08 handoff for current Windows REAL acceptance, upstream PR status, and Android next-step boundaries. Keep this file as investigation history only.
+
 ## Purpose
 
 This document is the current source-of-truth handoff for the Windows 0.6.4 Iterate / Codex Desktop parity and REAL acceptance work after commit `c2f53dc` was built, downloaded, hash-verified, installed into the canonical local runtime, and manually tested by the user.
