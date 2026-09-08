@@ -12,9 +12,11 @@ Windows 黄金工作区：
 
 `windows-v064-staging-pr27-verify-20260901`
 
-黄金 commit：
+功能黄金代码基线：
 
 `d991c66ccf1e5b54dc4dfdc9c8318dca8b5ffbeb`
+
+注意：黄金分支 HEAD 之后可能还会多出纯文档 handoff commit；`d991c66` 是已经 REAL 验收通过的 Windows 功能代码基线。开始后应检查当前 HEAD/diff，不要仅因为 HEAD 不等于 `d991c66` 就误判功能基线发生变化。
 
 官方仓库：
 

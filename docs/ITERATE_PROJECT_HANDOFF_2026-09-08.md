@@ -20,13 +20,15 @@ Golden branch:
 
 `windows-v064-staging-pr27-verify-20260901`
 
-Golden commit:
+Functional golden code baseline:
 
 `d991c66ccf1e5b54dc4dfdc9c8318dca8b5ffbeb`
 
 Commit message:
 
 `fix(windows): hide cold-start knowledge sync console`
+
+The branch may be ahead of `d991c66` by documentation-only handoff commits. Treat `d991c66` as the accepted Windows code baseline; inspect the current branch HEAD and diff before assuming any later commit changes runtime behavior.
 
 Fork remote:
 
