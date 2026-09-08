@@ -2285,7 +2285,6 @@ fn open_accessibility_settings() {
         .output();
 }
 
-#[cfg(target_os = "macos")]
 fn build_codex_new_thread_deeplink(content: &str, project_path: Option<&str>) -> Option<String> {
     let prompt = content.trim();
     if prompt.is_empty() {
@@ -2607,6 +2606,118 @@ fn launch_codex_desktop_deeplink(url: &str) -> Result<(), String> {
         .map_err(|error| format!("官方 Codex Desktop App 打开 deeplink 失败: {error}"))
 }
 
+#[cfg(target_os = "windows")]
+fn windows_foreground_executable_path() -> Option<PathBuf> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId,
+    };
+
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.is_null() {
+        return None;
+    }
+
+    let mut pid = 0u32;
+    unsafe {
+        GetWindowThreadProcessId(hwnd, &mut pid);
+    }
+    if pid == 0 {
+        return None;
+    }
+
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return None;
+    }
+
+    let mut buffer = vec![0u16; 32768];
+    let mut size = buffer.len() as u32;
+    let ok = unsafe { QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut size) } != 0;
+    unsafe {
+        CloseHandle(process);
+    }
+    if !ok || size == 0 {
+        return None;
+    }
+
+    Some(PathBuf::from(String::from_utf16_lossy(
+        &buffer[..size as usize],
+    )))
+}
+
+#[cfg(target_os = "windows")]
+fn is_codex_desktop_foreground_path(path: &Path) -> bool {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.to_ascii_lowercase());
+
+    if file_name.as_deref() != Some("chatgpt.exe") {
+        return false;
+    }
+
+    path.to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase()
+        .contains("/windowsapps/openai.codex_")
+}
+
+#[cfg(target_os = "windows")]
+fn wait_for_codex_foreground(timeout: std::time::Duration) -> bool {
+    let started = std::time::Instant::now();
+    while started.elapsed() < timeout {
+        if windows_foreground_executable_path()
+            .as_deref()
+            .is_some_and(is_codex_desktop_foreground_path)
+        {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    false
+}
+
+#[cfg(target_os = "windows")]
+fn post_return_keypress_to_codex() -> Result<(), String> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        keybd_event, KEYEVENTF_KEYUP, VK_RETURN,
+    };
+
+    if !wait_for_codex_foreground(std::time::Duration::from_secs(3)) {
+        return Err("Codex 未成为前台窗口，为避免误发按键已取消自动发送".to_string());
+    }
+
+    unsafe {
+        keybd_event(VK_RETURN as u8, 0, 0, 0);
+        keybd_event(VK_RETURN as u8, 0, KEYEVENTF_KEYUP, 0);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn post_new_task_keypress_to_codex() -> Result<(), String> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        keybd_event, KEYEVENTF_KEYUP, VK_CONTROL,
+    };
+
+    if !wait_for_codex_foreground(std::time::Duration::from_secs(3)) {
+        return Err("Codex 未成为前台窗口，为避免误发快捷键已取消新建对话".to_string());
+    }
+
+    const VK_N: u8 = b'N';
+    unsafe {
+        keybd_event(VK_CONTROL as u8, 0, 0, 0);
+        keybd_event(VK_N, 0, 0, 0);
+        keybd_event(VK_N, 0, KEYEVENTF_KEYUP, 0);
+        keybd_event(VK_CONTROL as u8, 0, KEYEVENTF_KEYUP, 0);
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 fn open_new_codex_chat_with_applescript(
     content: &str,
@@ -2698,12 +2809,30 @@ end tell
     })
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub async fn probe_codex_automation_permission() -> Result<CodexAutomationProbeResult, String> {
+    match resolve_codex_desktop_app_exe() {
+        Ok(path) => Ok(CodexAutomationProbeResult {
+            status: "granted".to_string(),
+            details: format!(
+                "已确认 Windows Codex Desktop 可用：{}；自动按键仅在官方 Codex 窗口确认成为前台时执行。",
+                path.display()
+            ),
+        }),
+        Err(error) => Ok(CodexAutomationProbeResult {
+            status: "error".to_string(),
+            details: error,
+        }),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[tauri::command]
 pub async fn probe_codex_automation_permission() -> Result<CodexAutomationProbeResult, String> {
     Ok(CodexAutomationProbeResult {
         status: "unsupported".to_string(),
-        details: "仅 macOS 支持 Codex 自动化权限探测。".to_string(),
+        details: "当前平台暂不支持 Codex 自动化权限探测。".to_string(),
     })
 }
 
@@ -2750,6 +2879,36 @@ pub async fn open_codex_thread(thread_id: String) -> Result<(), String> {
     let deeplink =
         codex_thread_deeplink(&thread_id).ok_or_else(|| "Codex 会话 ID 无效".to_string())?;
     launch_codex_desktop_deeplink(&deeplink)
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub async fn open_new_codex_chat(thread_id: String) -> Result<(), String> {
+    let deeplink =
+        codex_thread_deeplink(&thread_id).ok_or_else(|| "Codex 会话 ID 无效".to_string())?;
+
+    launch_codex_desktop_deeplink(&deeplink)?;
+    if !wait_for_codex_foreground(std::time::Duration::from_secs(3)) {
+        return Err("原 Codex 会话未成为前台窗口，未创建新对话".to_string());
+    }
+
+    // Codex 的 thread deeplink 没有路由完成回调。给 Electron 一次很短的 settle，
+    // 随后再次确认前台仍是官方 Codex，避免 Ctrl+N 抢在 thread 路由切换之前。
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    if !windows_foreground_executable_path()
+        .as_deref()
+        .is_some_and(is_codex_desktop_foreground_path)
+    {
+        return Err("Codex 会话切换期间失去前台，为避免误发快捷键已取消新建对话".to_string());
+    }
+
+    post_new_task_keypress_to_codex()
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+pub async fn open_new_codex_chat(_thread_id: String) -> Result<(), String> {
+    Err("当前平台暂不使用 Windows Codex 空白新会话入口".to_string())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -2934,14 +3093,56 @@ pub async fn open_new_codex_chat_with_text(
     })
 }
 
-/// 非 macOS 平台暂不支持 Codex 自动化
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub async fn open_new_codex_chat_with_text(
+    content: String,
+    project_path: Option<String>,
+) -> Result<OpenCodexChatResult, String> {
+    let prompt = content.trim();
+    if prompt.is_empty() {
+        return Err("Codex 新对话内容不能为空".to_string());
+    }
+
+    let normalized_project_path = project_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty() && *path != "main_page")
+        .filter(|path| std::path::Path::new(path).is_absolute());
+
+    let deeplink = build_codex_new_thread_deeplink(prompt, normalized_project_path)
+        .ok_or_else(|| "无法构造 Codex 新对话链接".to_string())?;
+    launch_codex_desktop_deeplink(&deeplink)?;
+
+    match post_return_keypress_to_codex() {
+        Ok(()) => Ok(OpenCodexChatResult {
+            ok: true,
+            sent: true,
+            mode: "windows_deeplink_enter_sent".to_string(),
+            message: format!("已打开 Codex 并自动发送 {}", prompt),
+        }),
+        Err(error) => {
+            log::warn!(
+                "Windows Codex deeplink 已打开，但自动发送被安全门禁阻止: {}",
+                error
+            );
+            Ok(OpenCodexChatResult {
+                ok: true,
+                sent: false,
+                mode: "windows_deeplink_prefilled".to_string(),
+                message: format!("已打开 Codex 并预填 {}；{}", prompt, error),
+            })
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[tauri::command]
 pub async fn open_new_codex_chat_with_text(
     _content: String,
     _project_path: Option<String>,
 ) -> Result<OpenCodexChatResult, String> {
-    Err("仅 macOS 暂支持 Codex 自动化".to_string())
+    Err("当前平台暂不支持 Codex 自动化".to_string())
 }
 
 /// 打开新的 Windsurf 聊天标签页并发送内容
