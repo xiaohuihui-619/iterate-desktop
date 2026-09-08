@@ -202,3 +202,19 @@ test('Windows popup shortcuts use the new defaults and safely migrate only the c
   assert.match(popupActions, /props\.canSubmit && !props\.submitting[\s\S]*?handleGoalSubmit\(\)/)
   assert.match(popupActions, /!props\.submitting[\s\S]*?handleContinue\(\)/)
 })
+
+test('Windows opens projects and threads in the official Codex Desktop app', () => {
+  const commands = source('src/rust/ui/commands.rs')
+
+  assert.match(commands, /#\[cfg\(target_os = "windows"\)\]\s*fn codex_desktop_cli_candidates/)
+  assert.match(commands, /var_os\("LOCALAPPDATA"\)[\s\S]*?\.join\("OpenAI"\)[\s\S]*?\.join\("Codex"\)[\s\S]*?\.join\("bin"\)/)
+  assert.match(commands, /directory\.join\("codex\.exe"\)/)
+  assert.match(commands, /fn codex_desktop_app_candidates\(\)[\s\S]*?var_os\("ProgramFiles"\)[\s\S]*?\.join\("WindowsApps"\)/)
+  assert.match(commands, /starts_with\("openai\.codex_"\)[\s\S]*?\.join\("app"\)\.join\("ChatGPT\.exe"\)/)
+  assert.match(commands, /Get-AppxPackage -Name OpenAI\.Codex[\s\S]*?Select-Object -First 1 -ExpandProperty InstallLocation/)
+  assert.match(commands, /fn launch_codex_desktop_project[\s\S]*?\.arg\(project_path\)[\s\S]*?\.args\(\["app", project_path\]\)/)
+  assert.match(commands, /fn launch_codex_desktop_deeplink[\s\S]*?resolve_codex_desktop_app_exe\(\)[\s\S]*?\.arg\(url\)/)
+  assert.match(commands, /#\[cfg\(target_os = "windows"\)\]\s*#\[tauri::command\]\s*pub async fn open_codex_project/)
+  assert.match(commands, /#\[cfg\(target_os = "windows"\)\]\s*#\[tauri::command\]\s*pub async fn open_codex_thread/)
+  assert.match(commands, /#\[cfg\(not\(any\(target_os = "macos", target_os = "windows"\)\)\)\]/)
+})

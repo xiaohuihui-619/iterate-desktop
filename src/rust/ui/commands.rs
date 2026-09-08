@@ -2425,6 +2425,188 @@ fn launch_codex_desktop(project_path: Option<&str>) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn codex_desktop_cli_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        let bin_root = PathBuf::from(local_app_data)
+            .join("OpenAI")
+            .join("Codex")
+            .join("bin");
+        if let Ok(entries) = std::fs::read_dir(bin_root) {
+            let mut directories = entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir())
+                .collect::<Vec<_>>();
+            directories.sort_by_key(|path| {
+                std::fs::metadata(path)
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+            });
+            directories.reverse();
+            candidates.extend(
+                directories
+                    .into_iter()
+                    .map(|directory| directory.join("codex.exe")),
+            );
+        }
+    }
+
+    if let Some(path_env) = std::env::var_os("PATH") {
+        candidates.extend(std::env::split_paths(&path_env).map(|dir| dir.join("codex.exe")));
+    }
+
+    candidates.dedup();
+    candidates
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_codex_desktop_cli() -> Result<PathBuf, String> {
+    let candidates = codex_desktop_cli_candidates();
+    candidates
+        .iter()
+        .find(|candidate| candidate.is_file())
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "未找到 Codex Desktop CLI；已检查：{}",
+                candidates
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
+}
+
+#[cfg(target_os = "windows")]
+fn codex_desktop_app_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        let windows_apps = PathBuf::from(program_files).join("WindowsApps");
+        if let Ok(entries) = std::fs::read_dir(windows_apps) {
+            let mut directories = entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.to_ascii_lowercase().starts_with("openai.codex_"))
+                })
+                .collect::<Vec<_>>();
+            directories.sort_by_key(|path| {
+                std::fs::metadata(path)
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+            });
+            directories.reverse();
+            candidates.extend(
+                directories
+                    .into_iter()
+                    .map(|directory| directory.join("app").join("ChatGPT.exe")),
+            );
+        }
+    }
+
+    candidates.dedup();
+    candidates
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_codex_desktop_app_exe() -> Result<PathBuf, String> {
+    let candidates = codex_desktop_app_candidates();
+    if let Some(candidate) = candidates.iter().find(|candidate| candidate.is_file()) {
+        return Ok(candidate.clone());
+    }
+
+    let output = std::process::Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-AppxPackage -Name OpenAI.Codex | Sort-Object Version -Descending | Select-Object -First 1 -ExpandProperty InstallLocation",
+        ])
+        .without_console_window()
+        .output()
+        .map_err(|error| format!("查询官方 Codex Desktop App 失败: {error}"))?;
+
+    if output.status.success() {
+        let install_location = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !install_location.is_empty() {
+            let candidate = PathBuf::from(install_location)
+                .join("app")
+                .join("ChatGPT.exe");
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    Err(format!(
+        "未找到官方 Codex Desktop App；已检查 WindowsApps 并查询 OpenAI.Codex Appx 包。候选：{}",
+        candidates
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn launch_codex_desktop_project(project_path: &str) -> Result<(), String> {
+    if let Ok(app_exe) = resolve_codex_desktop_app_exe() {
+        match std::process::Command::new(&app_exe)
+            .arg(project_path)
+            .without_console_window()
+            .spawn()
+        {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                log::warn!(
+                    "官方 Codex Desktop App 直接打开项目失败，回退到 CLI：{}",
+                    error
+                );
+            }
+        }
+    }
+
+    let codex_cli = resolve_codex_desktop_cli()?;
+    let output = std::process::Command::new(&codex_cli)
+        .args(["app", project_path])
+        .without_console_window()
+        .output()
+        .map_err(|error| format!("调用 Codex Desktop CLI 失败: {}", error))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(format!(
+            "Codex Desktop CLI 打开项目失败（{}）：{}",
+            codex_cli.display(),
+            if stderr.is_empty() {
+                format!("退出码 {:?}", output.status.code())
+            } else {
+                stderr
+            }
+        ))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn launch_codex_desktop_deeplink(url: &str) -> Result<(), String> {
+    let app_exe = resolve_codex_desktop_app_exe()?;
+    std::process::Command::new(&app_exe)
+        .arg(url)
+        .without_console_window()
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("官方 Codex Desktop App 打开 deeplink 失败: {error}"))
+}
+
 #[cfg(target_os = "macos")]
 fn open_new_codex_chat_with_applescript(
     content: &str,
@@ -2549,17 +2731,37 @@ pub async fn open_codex_thread(thread_id: String) -> Result<(), String> {
     launch_codex_desktop_deeplink(&deeplink)
 }
 
-/// 非 macOS 平台暂不支持按项目打开 Codex
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
 #[tauri::command]
-pub async fn open_codex_project(_project_path: String) -> Result<(), String> {
-    Err("仅 macOS 暂支持 Codex Desktop 项目跳转".to_string())
+pub async fn open_codex_project(project_path: String) -> Result<(), String> {
+    let normalized_project_path = project_path.trim();
+    if normalized_project_path.is_empty() || normalized_project_path == "main_page" {
+        return Err("项目路径无效".to_string());
+    }
+    if !std::path::Path::new(normalized_project_path).is_absolute() {
+        return Err("仅支持绝对路径项目".to_string());
+    }
+    launch_codex_desktop_project(normalized_project_path)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub async fn open_codex_thread(thread_id: String) -> Result<(), String> {
+    let deeplink =
+        codex_thread_deeplink(&thread_id).ok_or_else(|| "Codex 会话 ID 无效".to_string())?;
+    launch_codex_desktop_deeplink(&deeplink)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[tauri::command]
+pub async fn open_codex_project(_project_path: String) -> Result<(), String> {
+    Err("当前平台暂不支持 Codex Desktop 项目跳转".to_string())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[tauri::command]
 pub async fn open_codex_thread(_thread_id: String) -> Result<(), String> {
-    Err("仅 macOS 暂支持 Codex Desktop 会话跳转".to_string())
+    Err("当前平台暂不支持 Codex Desktop 会话跳转".to_string())
 }
 
 /// 在 Codex 中打开项目或唤起应用。
